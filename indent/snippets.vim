@@ -42,11 +42,11 @@ def g:GetSnippetIndent(): number
   var prev_lnum = v:lnum - 1
   var prev_line = prev_lnum != 0 ? getline(prev_lnum) : ''
 
-  if line =~ '\v^(snippet|extends) '
+  if line =~# '\v^(snippet|extends) '
     return 0
   elseif indent(v:lnum) > 0
     return indent(v:lnum)
-  elseif prev_line =~ '^snippet '
+  elseif prev_line =~# '^snippet '
     return &sw
   elseif indent(prev_lnum) > 0
     return indent(prev_lnum)

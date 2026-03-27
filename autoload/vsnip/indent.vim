@@ -45,9 +45,9 @@ export def trim_base_indent(text: string): string
     endif
 
     # Detect most minimum base indent.
-    var indent_str = matchstr(line, '^\s*')
-    if base_indent == '' || strlen(indent_str) < strlen(base_indent)
-      base_indent = indent_str
+    var line_indent = matchstr(line, '^\s*')
+    if base_indent == '' || strlen(line_indent) < strlen(base_indent)
+      base_indent = line_indent
     endif
   endfor
   return substitute(result, "\\%(^\\|\n\\)\\zs\\V" .. base_indent, '', 'g')
