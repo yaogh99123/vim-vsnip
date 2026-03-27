@@ -1,259 +1,215 @@
-let s:Snippet = vsnip#snippet#import()
-let s:TextEdit = vital#vsnip#import('VS.LSP.TextEdit')
-let s:Position = vital#vsnip#import('VS.LSP.Position')
-let s:Diff = vital#vsnip#import('VS.LSP.Diff')
+vim9script
 
-"
-" import.
-"
-function! vsnip#session#import() abort
-  return s:Session
-endfunction
+import autoload 'vsnip/snippet.vim' as SnippetMod
 
-let s:Session = {}
+var TextEdit: dict<any> = vital#vsnip#import('VS.LSP.TextEdit')
+var Position: dict<any> = vital#vsnip#import('VS.LSP.Position')
+var Diff: dict<any> = vital#vsnip#import('VS.LSP.Diff')
 
-"
-" new.
-"
-function! s:Session.new(bufnr, position, text) abort
-  return extend(deepcopy(s:Session), {
-  \   'bufnr': a:bufnr,
-  \   'buffer': getbufline(a:bufnr, '^', '$'),
-  \   'timer_id': -1,
-  \   'changedtick': getbufvar(a:bufnr, 'changedtick', 0),
-  \   'snippet': s:Snippet.new(a:position, vsnip#indent#adjust_snippet_body(getline('.'), a:text)),
-  \   'tabstop': -1,
-  \   'changenr': changenr(),
-  \   'changenrs': {},
-  \ })
-endfunction
+export class Session
+  var bufnr: number
+  var buffer: list<any>
+  var timer_id: number
+  var changedtick: number
+  var snippet: any
+  var tabstop: number
+  var changenr: number
+  var changenrs: dict<any>
 
-"
-" expand.
-"
-function! s:Session.expand() abort
-  " insert snippet.
-  call s:TextEdit.apply(self.bufnr, [{
-  \   'range': {
-  \     'start': self.snippet.position,
-  \     'end': self.snippet.position
-  \   },
-  \   'newText': self.snippet.text()
-  \ }])
-  call self.store(changenr())
-endfunction
+  def new(bufnr_: number, position: dict<any>, text: string)
+    this.bufnr = bufnr_
+    this.buffer = getbufline(bufnr_, '^', '$')
+    this.timer_id = -1
+    this.changedtick = getbufvar(bufnr_, 'changedtick', 0)
+    this.snippet = SnippetMod.New(position, vsnip#indent#adjust_snippet_body(getline('.'), text))
+    this.tabstop = -1
+    this.changenr = changenr()
+    this.changenrs = {}
+  enddef
 
-"
-" merge.
-"
-function! s:Session.merge(session) abort
-  call s:TextEdit.apply(self.bufnr, self.snippet.sync())
-  call self.store(self.changenr)
+  def expand()
+    TextEdit.apply(this.bufnr, [{
+      range: {
+        start: this.snippet.position,
+        end: this.snippet.position,
+      },
+      newText: this.snippet.text(),
+    }])
+    this.store(changenr())
+  enddef
 
-  call a:session.expand()
-  call self.snippet.merge(self.tabstop, a:session.snippet)
-  call self.snippet.insert(deepcopy(a:session.snippet.position), a:session.snippet.children)
-  call s:TextEdit.apply(self.bufnr, self.snippet.sync())
-  call self.store(changenr())
-endfunction
+  def merge(other_session: Session)
+    TextEdit.apply(this.bufnr, this.snippet.sync())
+    this.store(this.changenr)
 
-"
-" jumpable.
-"
-function! s:Session.jumpable(direction) abort
-  if a:direction == 1
-    let l:jumpable = !empty(self.snippet.get_next_jump_point(self.tabstop))
-  else
-    let l:jumpable = !empty(self.snippet.get_prev_jump_point(self.tabstop))
-  endif
-  return l:jumpable
-endfunction
+    other_session.expand()
+    this.snippet.merge(this.tabstop, other_session.snippet)
+    this.snippet.insert(deepcopy(other_session.snippet.position), other_session.snippet.children)
+    TextEdit.apply(this.bufnr, this.snippet.sync())
+    this.store(changenr())
+  enddef
 
-"
-" jump.
-"
-function! s:Session.jump(direction) abort
-  call self.flush_changes()
-
-  if a:direction == 1
-    let l:jump_point = self.snippet.get_next_jump_point(self.tabstop)
-  else
-    let l:jump_point = self.snippet.get_prev_jump_point(self.tabstop)
-  endif
-
-  if empty(l:jump_point)
-    return
-  endif
-
-  let self.tabstop = l:jump_point.placeholder.id
-
-  " choice.
-  if len(l:jump_point.placeholder.choice) > 0
-    call self.choice(l:jump_point)
-
-    " select.
-  elseif l:jump_point.range.start.character != l:jump_point.range.end.character
-    call self.select(l:jump_point)
-
-    " move.
-  else
-    call self.move(l:jump_point)
-  endif
-
-  doautocmd <nomodeline> User vsnip#jump
-endfunction
-
-"
-" choice.
-"
-function! s:Session.choice(jump_point) abort
-  call self.move(a:jump_point)
-
-  let l:fn = {}
-  let l:fn.jump_point = a:jump_point
-  function! l:fn.next_tick() abort
-    if mode()[0] ==# 'i'
-      let l:pos = s:Position.lsp_to_vim('%', self.jump_point.range.start)
-      call complete(l:pos[1], map(copy(self.jump_point.placeholder.choice), { k, v -> {
-      \   'word': v.escaped,
-      \   'abbr': v.escaped,
-      \   'menu': '[vsnip]',
-      \   'kind': 'Choice'
-      \ } }))
-    endif
-  endfunction
-  call timer_start(g:vsnip_choice_delay, { -> l:fn.next_tick() })
-endfunction
-
-"
-" select.
-"
-" @NOTE: Must work even if virtualedit=all/onmore or not.
-"
-function! s:Session.select(jump_point) abort
-  let l:start_pos = s:Position.lsp_to_vim('%', a:jump_point.range.start)
-  let l:end_pos = s:Position.lsp_to_vim('%', a:jump_point.range.end)
-
-  let l:cmd = ''
-  let l:cmd .= "\<Cmd>set virtualedit=onemore\<CR>"
-  let l:cmd .= mode()[0] ==# 'i' ? "\<Esc>" : ''
-  let l:cmd .= printf("\<Cmd>call cursor(%s, %s)\<CR>", l:start_pos[0], l:start_pos[1])
-  let l:cmd .= 'v'
-  let l:cmd .= printf("\<Cmd>call cursor(%s, %s)\<CR>%s", l:end_pos[0], l:end_pos[1], &selection ==# 'exclusive' ? '' : 'h')
-  if get(g:, 'vsnip_test_mode', v:false)
-    let l:cmd .= "\<Esc>gv"
-  endif
-  let l:cmd .= printf("\<Cmd>set virtualedit=%s\<CR>", &virtualedit)
-  let l:cmd .= "\<C-g>"
-  call feedkeys(l:cmd, 'ni')
-endfunction
-
-"
-" move.
-"
-" @NOTE: Must work even if virtualedit=all/onmore or not.
-"
-function! s:Session.move(jump_point) abort
-  let l:pos = s:Position.lsp_to_vim('%', a:jump_point.range.end)
-
-  call cursor(l:pos)
-
-  if mode()[0] ==# 'n'
-    if l:pos[1] != getcurpos()[2]
-      call feedkeys('a', 'ni')
+  def jumpable(direction: number): bool
+    if direction == 1
+      return !empty(this.snippet.get_next_jump_point(this.tabstop))
     else
-      call feedkeys('i', 'ni')
+      return !empty(this.snippet.get_prev_jump_point(this.tabstop))
     endif
-  endif
-endfunction
+  enddef
 
-"
-" refresh
-"
-function! s:Session.refresh() abort
-  let self.buffer = getbufline(self.bufnr, '^', '$')
-  let self.changedtick = getbufvar(self.bufnr, 'changedtick', 0)
-endfunction
+  def jump(direction: number)
+    this.flush_changes()
 
-"
-" on_insert_leave
-"
-function! s:Session.on_insert_leave() abort
-  call self.flush_changes()
-endfunction
+    var jump_point: any
+    if direction == 1
+      jump_point = this.snippet.get_next_jump_point(this.tabstop)
+    else
+      jump_point = this.snippet.get_prev_jump_point(this.tabstop)
+    endif
 
-"
-" on_text_changed
-"
-function! s:Session.on_text_changed() abort
-  if self.bufnr != bufnr('%')
-    return vsnip#deactivate()
-  endif
-
-  let l:changenr = changenr()
-
-  " save state.
-  if self.changenr != l:changenr
-    call self.store(self.changenr)
-    if has_key(self.changenrs, l:changenr)
-      let self.tabstop = self.changenrs[l:changenr].tabstop
-      let self.snippet = self.changenrs[l:changenr].snippet
-      let self.changenr = l:changenr
-      let self.buffer = getbufline(self.bufnr, '^', '$')
+    if empty(jump_point)
       return
     endif
-  endif
 
-  if g:vsnip_sync_delay == 0
-    call self.flush_changes()
-  elseif g:vsnip_sync_delay > 0
-    call timer_stop(self.timer_id)
-    let self.timer_id = timer_start(g:vsnip_sync_delay, { -> self.flush_changes() }, { 'repeat': 1 })
-  endif
-endfunction
+    this.tabstop = jump_point.placeholder.id
 
-"
-" flush_changes
-"
-function! s:Session.flush_changes() abort
-  let l:changedtick = getbufvar(self.bufnr, 'changedtick', 0)
-  if self.changedtick == l:changedtick
-    return
-  endif
-  let self.changedtick = l:changedtick
+    if len(jump_point.placeholder.choice) > 0
+      this.choice(jump_point)
+    elseif jump_point.range.start.character != jump_point.range.end.character
+      this.select(jump_point)
+    else
+      this.move(jump_point)
+    endif
 
-  " compute diff.
-  let l:buffer = getbufline(self.bufnr, '^', '$')
-  let l:diff = s:Diff.compute(self.buffer, l:buffer)
-  let self.buffer = l:buffer
-  if l:diff.rangeLength == 0 && l:diff.text ==# ''
-    return
-  endif
+    doautocmd <nomodeline> User vsnip#jump
+  enddef
 
-  " if follow succeeded, sync placeholders and write back to the buffer.
-  if self.snippet.follow(self.tabstop, l:diff)
-    try
-      let l:text_edits = self.snippet.sync()
-      if len(l:text_edits) > 0
-        undojoin | call s:TextEdit.apply(self.bufnr, l:text_edits)
+  def choice(jump_point: dict<any>)
+    this.move(jump_point)
+
+    var jp = jump_point
+    timer_start(g:vsnip_choice_delay, (_) => {
+      if mode()[0] ==# 'i'
+        var pos = Position.lsp_to_vim('%', jp.range.start)
+        complete(pos[1], mapnew(copy(jp.placeholder.choice), (k, v) => {
+          return {word: v.escaped, abbr: v.escaped, menu: '[vsnip]', kind: 'Choice'}
+        }))
       endif
-      call self.refresh()
-    catch /.*/
-      " TODO: More strict changenrs mangement.
-      call vsnip#deactivate()
-    endtry
-  else
-    call vsnip#deactivate()
-  endif
-endfunction
+    })
+  enddef
 
-"
-" save.
-"
-function! s:Session.store(changenr) abort
-  let self.changenrs[a:changenr] = {
-  \   'tabstop': self.tabstop,
-  \   'snippet': deepcopy(self.snippet)
-  \ }
-  let self.changenr = a:changenr
-endfunction
+  def select(jump_point: dict<any>)
+    var start_pos = Position.lsp_to_vim('%', jump_point.range.start)
+    var end_pos = Position.lsp_to_vim('%', jump_point.range.end)
+
+    var cmd = ''
+    cmd ..= "\<Cmd>set virtualedit=onemore\<CR>"
+    cmd ..= mode()[0] ==# 'i' ? "\<Esc>" : ''
+    cmd ..= printf("\<Cmd>call cursor(%s, %s)\<CR>", start_pos[0], start_pos[1])
+    cmd ..= 'v'
+    cmd ..= printf("\<Cmd>call cursor(%s, %s)\<CR>%s", end_pos[0], end_pos[1], &selection ==# 'exclusive' ? '' : 'h')
+    if get(g:, 'vsnip_test_mode', false)
+      cmd ..= "\<Esc>gv"
+    endif
+    cmd ..= printf("\<Cmd>set virtualedit=%s\<CR>", &virtualedit)
+    cmd ..= "\<C-g>"
+    feedkeys(cmd, 'ni')
+  enddef
+
+  def move(jump_point: dict<any>)
+    var pos = Position.lsp_to_vim('%', jump_point.range.end)
+
+    cursor(pos)
+
+    if mode()[0] ==# 'n'
+      if pos[1] != getcurpos()[2]
+        feedkeys('a', 'ni')
+      else
+        feedkeys('i', 'ni')
+      endif
+    endif
+  enddef
+
+  def refresh()
+    this.buffer = getbufline(this.bufnr, '^', '$')
+    this.changedtick = getbufvar(this.bufnr, 'changedtick', 0)
+  enddef
+
+  def on_insert_leave()
+    this.flush_changes()
+  enddef
+
+  def on_text_changed()
+    if this.bufnr != bufnr('%')
+      vsnip#deactivate()
+      return
+    endif
+
+    var curr_changenr = changenr()
+
+    if this.changenr != curr_changenr
+      this.store(this.changenr)
+      if has_key(this.changenrs, curr_changenr)
+        this.tabstop = this.changenrs[curr_changenr].tabstop
+        this.snippet = this.changenrs[curr_changenr].snippet
+        this.changenr = curr_changenr
+        this.buffer = getbufline(this.bufnr, '^', '$')
+        return
+      endif
+    endif
+
+    if g:vsnip_sync_delay == 0
+      this.flush_changes()
+    elseif g:vsnip_sync_delay > 0
+      timer_stop(this.timer_id)
+      this.timer_id = timer_start(g:vsnip_sync_delay, (_) => this.flush_changes(), {repeat: 1})
+    endif
+  enddef
+
+  def flush_changes()
+    var curr_changedtick = getbufvar(this.bufnr, 'changedtick', 0)
+    if this.changedtick == curr_changedtick
+      return
+    endif
+    this.changedtick = curr_changedtick
+
+    var buf = getbufline(this.bufnr, '^', '$')
+    var diff = Diff.compute(this.buffer, buf)
+    this.buffer = buf
+    if diff.rangeLength == 0 && diff.text ==# ''
+      return
+    endif
+
+    if this.snippet.follow(this.tabstop, diff)
+      try
+        var text_edits = this.snippet.sync()
+        if len(text_edits) > 0
+          undojoin | call TextEdit.apply(this.bufnr, text_edits)
+        endif
+        this.refresh()
+      catch /.*/
+        vsnip#deactivate()
+      endtry
+    else
+      vsnip#deactivate()
+    endif
+  enddef
+
+  def store(nr: number)
+    this.changenrs[nr] = {
+      tabstop: this.tabstop,
+      snippet: deepcopy(this.snippet),
+    }
+    this.changenr = nr
+  enddef
+endclass
+
+# Backward-compatible import function used by legacy callers
+export def import(): dict<any>
+  return {new: New}
+enddef
+
+# Primary vim9 API
+export def New(bufnr_: number, position: dict<any>, text: string): Session
+  return Session.new(bufnr_, position, text)
+enddef

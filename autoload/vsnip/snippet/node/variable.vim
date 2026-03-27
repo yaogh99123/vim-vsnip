@@ -10,6 +10,11 @@ export class VariableNode
   var resolver: any
   var children: list<any>
   var transform: any
+  # Extra fields used when an unknown variable is treated as a placeholder in init()
+  var id: number = -1
+  var follower: bool = false
+  var choice: list<any> = []
+  var is_final: bool = false
 
   def new(ast: dict<any>)
     uid += 1
