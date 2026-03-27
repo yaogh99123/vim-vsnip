@@ -1,68 +1,60 @@
-let s:cache = {}
+vim9script
 
-"
-" vsnip#source#user_snippet#find.
-"
-function! vsnip#source#user_snippet#find(bufnr) abort
-  let l:sources = []
-  for l:path in s:get_source_paths(a:bufnr)
-    if !has_key(s:cache, l:path)
-      let s:cache[l:path] = vsnip#source#create(l:path)
+var cache: dict<any> = {}
+
+# vsnip#source#user_snippet#find.
+export def Find(bufnr: number): list<any>
+  var sources: list<any> = []
+  for path in GetSourcePaths(bufnr)
+    if !has_key(cache, path)
+      cache[path] = vsnip#source#create(path)
     endif
-    call add(l:sources, s:cache[l:path])
+    add(sources, cache[path])
   endfor
-  return l:sources
-endfunction
+  return sources
+enddef
 
-"
-" vsnip#source#user_snippet#refresh.
-"
-function! vsnip#source#user_snippet#refresh(path) abort
-  if has_key(s:cache, a:path)
-    unlet s:cache[a:path]
+# vsnip#source#user_snippet#refresh.
+export def Refresh(path: string): void
+  if has_key(cache, path)
+    unlet cache[path]
   endif
-endfunction
+enddef
 
-function! s:get_source_dirs(bufnr) abort
-  let l:dirs = []
-  let l:buf_dir = getbufvar(a:bufnr, 'vsnip_snippet_dir', v:null)
-  if l:buf_dir isnot v:null
-      let l:dirs += [l:buf_dir]
+def GetSourceDirs(bufnr: number): list<any>
+  var dirs: list<any> = []
+  var buf_dir = getbufvar(bufnr, 'vsnip_snippet_dir', null)
+  if buf_dir != null
+    dirs += [buf_dir]
   endif
-  let l:dirs += getbufvar(a:bufnr, 'vsnip_snippet_dirs', [])
-  let l:dirs += [g:vsnip_snippet_dir]
-  let l:dirs += g:vsnip_snippet_dirs
-  return l:dirs
-endfunction
+  dirs += getbufvar(bufnr, 'vsnip_snippet_dirs', [])
+  dirs += [g:vsnip_snippet_dir]
+  dirs += g:vsnip_snippet_dirs
+  return dirs
+enddef
 
-"
-" get_source_paths.
-"
-function! s:get_source_paths(bufnr) abort
-  let l:filetypes = vsnip#source#filetypes(a:bufnr)
+# get_source_paths.
+def GetSourcePaths(bufnr: number): list<any>
+  var filetypes = vsnip#source#filetypes(bufnr)
 
-  let l:paths = []
-  for l:dir in s:get_source_dirs(a:bufnr)
-    for l:filetype in l:filetypes
-      let l:path = resolve(expand(printf('%s/%s.json', l:dir, l:filetype)))
-      if has_key(s:cache, l:path) || filereadable(l:path)
-        call add(l:paths, l:path)
+  var paths: list<any> = []
+  for dir in GetSourceDirs(bufnr)
+    for filetype in filetypes
+      var path = resolve(expand(printf('%s/%s.json', dir, filetype)))
+      if has_key(cache, path) || filereadable(path)
+        add(paths, path)
       endif
     endfor
   endfor
-  return l:paths
-endfunction
+  return paths
+enddef
 
-"
-" vsnip#source#user_snippet#dirs
-"
-fun! vsnip#source#user_snippet#dirs(...) abort
-  return s:get_source_dirs(a:0 ? a:1 : bufnr(''))
-endfun
+# vsnip#source#user_snippet#dirs
+export def Dirs(...args: list<any>): list<any>
+  return GetSourceDirs(get(args, 0, bufnr('')))
+enddef
 
-"
-" vsnip#source#user_snippet#paths
-"
-fun! vsnip#source#user_snippet#paths(...) abort
-  return s:get_source_paths(a:0 ? a:1 : bufnr(''))
-endfun
+# vsnip#source#user_snippet#paths
+export def Paths(...args: list<any>): list<any>
+  return GetSourcePaths(get(args, 0, bufnr('')))
+enddef

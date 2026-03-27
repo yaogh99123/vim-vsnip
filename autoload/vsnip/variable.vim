@@ -1,188 +1,182 @@
-let s:variables = {}
+vim9script
 
-"
-" vsnip#variable#register
-"
-function! vsnip#variable#register(name, func, ...) abort
-  let l:option = get(a:000, 0, {})
-  let s:variables[a:name] = {
-  \   'func': a:func,
-  \   'once': get(l:option, 'once', v:false)
-  \ }
-endfunction
+var variables: dict<any> = {}
 
-"
-" vsnip#variable#get
-"
-function! vsnip#variable#get(name) abort
-  return get(s:variables, a:name, v:null)
-endfunction
+# vsnip#variable#register
+export def Register(name: string, Func: func, ...args: list<any>): void
+  var option = get(args, 0, {})
+  variables[name] = {
+    func: Func,
+    once: get(option, 'once', false)
+  }
+enddef
 
-"
-" Register built-in variables.
-"
-" @see https://code.visualstudio.com/docs/editor/userdefinedsnippets#_variables
-"
+# vsnip#variable#get
+export def Get(name: string): any
+  return get(variables, name, null)
+enddef
 
-function! s:TM_SELECTED_TEXT(context) abort
-  let l:selected_text = vsnip#selected_text()
-  if empty(l:selected_text)
-    return v:null
+# Register built-in variables.
+# @see https://code.visualstudio.com/docs/editor/userdefinedsnippets#_variables
+
+def TM_SELECTED_TEXT(context: dict<any>): any
+  var selected_text = vsnip#selected_text()
+  if empty(selected_text)
+    return null
   endif
-  return vsnip#indent#trim_base_indent(l:selected_text)
-endfunction
-call vsnip#variable#register('TM_SELECTED_TEXT', function('s:TM_SELECTED_TEXT'))
+  return vsnip#indent#trim_base_indent(selected_text)
+enddef
+Register('TM_SELECTED_TEXT', TM_SELECTED_TEXT)
 
-function! s:TM_CURRENT_LINE(context) abort
+def TM_CURRENT_LINE(context: dict<any>): any
   return getline('.')
-endfunction
-call vsnip#variable#register('TM_CURRENT_LINE', function('s:TM_CURRENT_LINE'))
+enddef
+Register('TM_CURRENT_LINE', TM_CURRENT_LINE)
 
-function! s:TM_CURRENT_WORD(context) abort
-  return v:null
-endfunction
-call vsnip#variable#register('TM_CURRENT_WORD', function('s:TM_CURRENT_WORD'))
+def TM_CURRENT_WORD(context: dict<any>): any
+  return null
+enddef
+Register('TM_CURRENT_WORD', TM_CURRENT_WORD)
 
-function! s:TM_LINE_INDEX(context) abort
+def TM_LINE_INDEX(context: dict<any>): any
   return line('.') - 1
-endfunction
-call vsnip#variable#register('TM_LINE_INDEX', function('s:TM_LINE_INDEX'))
+enddef
+Register('TM_LINE_INDEX', TM_LINE_INDEX)
 
-function! s:TM_LINE_NUMBER(context) abort
+def TM_LINE_NUMBER(context: dict<any>): any
   return line('.')
-endfunction
-call vsnip#variable#register('TM_LINE_NUMBER', function('s:TM_LINE_NUMBER'))
+enddef
+Register('TM_LINE_NUMBER', TM_LINE_NUMBER)
 
-function! s:TM_FILENAME(context) abort
+def TM_FILENAME(context: dict<any>): any
   return expand('%:p:t')
-endfunction
-call vsnip#variable#register('TM_FILENAME', function('s:TM_FILENAME'))
+enddef
+Register('TM_FILENAME', TM_FILENAME)
 
-function! s:TM_FILENAME_BASE(context) abort
+def TM_FILENAME_BASE(context: dict<any>): any
   return substitute(expand('%:p:t'), '^\@<!\..*$', '', '')
-endfunction
-call vsnip#variable#register('TM_FILENAME_BASE', function('s:TM_FILENAME_BASE'))
+enddef
+Register('TM_FILENAME_BASE', TM_FILENAME_BASE)
 
-function! s:TM_DIRECTORY(context) abort
+def TM_DIRECTORY(context: dict<any>): any
   return expand('%:p:h:t')
-endfunction
-call vsnip#variable#register('TM_DIRECTORY', function('s:TM_DIRECTORY'))
+enddef
+Register('TM_DIRECTORY', TM_DIRECTORY)
 
-function! s:TM_FILEPATH(context) abort
+def TM_FILEPATH(context: dict<any>): any
   return expand('%:p')
-endfunction
-call vsnip#variable#register('TM_FILEPATH', function('s:TM_FILEPATH'))
+enddef
+Register('TM_FILEPATH', TM_FILEPATH)
 
-function! s:RELATIVE_FILEPATH(context) abort
+def RELATIVE_FILEPATH(context: dict<any>): any
   return expand('%')
-endfunction
-call vsnip#variable#register('RELATIVE_FILEPATH', function('s:RELATIVE_FILEPATH'))
+enddef
+Register('RELATIVE_FILEPATH', RELATIVE_FILEPATH)
 
-function! s:CLIPBOARD(context) abort
-  let l:clipboard = getreg(v:register)
-  if empty(l:clipboard)
-    return v:null
+def CLIPBOARD(context: dict<any>): any
+  var clipboard = getreg(v:register)
+  if empty(clipboard)
+    return null
   endif
-  return vsnip#indent#trim_base_indent(l:clipboard)
-endfunction
-call vsnip#variable#register('CLIPBOARD', function('s:CLIPBOARD'))
+  return vsnip#indent#trim_base_indent(clipboard)
+enddef
+Register('CLIPBOARD', CLIPBOARD)
 
-function! s:WORKSPACE_NAME(context) abort
-  return v:null
-endfunction
-call vsnip#variable#register('WORKSPACE_NAME', function('s:WORKSPACE_NAME'))
+def WORKSPACE_NAME(context: dict<any>): any
+  return null
+enddef
+Register('WORKSPACE_NAME', WORKSPACE_NAME)
 
-function! s:CURRENT_YEAR(context) abort
+def CURRENT_YEAR(context: dict<any>): any
   return strftime('%Y')
-endfunction
-call vsnip#variable#register('CURRENT_YEAR', function('s:CURRENT_YEAR'))
+enddef
+Register('CURRENT_YEAR', CURRENT_YEAR)
 
-function! s:CURRENT_YEAR_SHORT(context) abort
+def CURRENT_YEAR_SHORT(context: dict<any>): any
   return strftime('%y')
-endfunction
-call vsnip#variable#register('CURRENT_YEAR_SHORT', function('s:CURRENT_YEAR_SHORT'))
+enddef
+Register('CURRENT_YEAR_SHORT', CURRENT_YEAR_SHORT)
 
-function! s:CURRENT_MONTH(context) abort
+def CURRENT_MONTH(context: dict<any>): any
   return strftime('%m')
-endfunction
-call vsnip#variable#register('CURRENT_MONTH', function('s:CURRENT_MONTH'))
+enddef
+Register('CURRENT_MONTH', CURRENT_MONTH)
 
-function! s:CURRENT_MONTH_NAME(context) abort
+def CURRENT_MONTH_NAME(context: dict<any>): any
   return strftime('%B')
-endfunction
-call vsnip#variable#register('CURRENT_MONTH_NAME', function('s:CURRENT_MONTH_NAME'))
+enddef
+Register('CURRENT_MONTH_NAME', CURRENT_MONTH_NAME)
 
-function! s:CURRENT_MONTH_NAME_SHORT(context) abort
+def CURRENT_MONTH_NAME_SHORT(context: dict<any>): any
   return strftime('%b')
-endfunction
-call vsnip#variable#register('CURRENT_MONTH_NAME_SHORT', function('s:CURRENT_MONTH_NAME_SHORT'))
+enddef
+Register('CURRENT_MONTH_NAME_SHORT', CURRENT_MONTH_NAME_SHORT)
 
-function! s:CURRENT_DATE(context) abort
+def CURRENT_DATE(context: dict<any>): any
   return strftime('%d')
-endfunction
-call vsnip#variable#register('CURRENT_DATE', function('s:CURRENT_DATE'))
+enddef
+Register('CURRENT_DATE', CURRENT_DATE)
 
-function! s:CURRENT_DAY_NAME(context) abort
+def CURRENT_DAY_NAME(context: dict<any>): any
   return strftime('%A')
-endfunction
-call vsnip#variable#register('CURRENT_DAY_NAME', function('s:CURRENT_DAY_NAME'))
+enddef
+Register('CURRENT_DAY_NAME', CURRENT_DAY_NAME)
 
-function! s:CURRENT_DAY_NAME_SHORT(context) abort
+def CURRENT_DAY_NAME_SHORT(context: dict<any>): any
   return strftime('%a')
-endfunction
-call vsnip#variable#register('CURRENT_DAY_NAME_SHORT', function('s:CURRENT_DAY_NAME_SHORT'))
+enddef
+Register('CURRENT_DAY_NAME_SHORT', CURRENT_DAY_NAME_SHORT)
 
-function! s:CURRENT_HOUR(context) abort
+def CURRENT_HOUR(context: dict<any>): any
   return strftime('%H')
-endfunction
-call vsnip#variable#register('CURRENT_HOUR', function('s:CURRENT_HOUR'))
+enddef
+Register('CURRENT_HOUR', CURRENT_HOUR)
 
-function! s:CURRENT_MINUTE(context) abort
+def CURRENT_MINUTE(context: dict<any>): any
   return strftime('%M')
-endfunction
-call vsnip#variable#register('CURRENT_MINUTE', function('s:CURRENT_MINUTE'))
+enddef
+Register('CURRENT_MINUTE', CURRENT_MINUTE)
 
-function! s:CURRENT_SECOND(context) abort
+def CURRENT_SECOND(context: dict<any>): any
   return strftime('%S')
-endfunction
-call vsnip#variable#register('CURRENT_SECOND', function('s:CURRENT_SECOND'))
+enddef
+Register('CURRENT_SECOND', CURRENT_SECOND)
 
-function! s:CURRENT_SECONDS_UNIX(context) abort
+def CURRENT_SECONDS_UNIX(context: dict<any>): any
   return localtime()
-endfunction
-call vsnip#variable#register('CURRENT_SECONDS_UNIX', function('s:CURRENT_SECONDS_UNIX'))
+enddef
+Register('CURRENT_SECONDS_UNIX', CURRENT_SECONDS_UNIX)
 
-function! s:BLOCK_COMMENT_START(context) abort
+def BLOCK_COMMENT_START(context: dict<any>): any
   return split(&commentstring, '%s')[0]
-endfunction
-call vsnip#variable#register('BLOCK_COMMENT_START', function('s:BLOCK_COMMENT_START'))
+enddef
+Register('BLOCK_COMMENT_START', BLOCK_COMMENT_START)
 
-function! s:BLOCK_COMMENT_END(context) abort
-  let l:chars = split(&commentstring, '%s')
-  let l:comment = len(l:chars) > 1 ? l:chars[1] : l:chars[0]
-  return trim(l:comment)
-endfunction
-call vsnip#variable#register('BLOCK_COMMENT_END', function('s:BLOCK_COMMENT_END'))
+def BLOCK_COMMENT_END(context: dict<any>): any
+  var chars = split(&commentstring, '%s')
+  var comment = len(chars) > 1 ? chars[1] : chars[0]
+  return trim(comment)
+enddef
+Register('BLOCK_COMMENT_END', BLOCK_COMMENT_END)
 
-function! s:LINE_COMMENT(context) abort
-  let l:chars = split(&commentstring, '%s')
-  let l:comment = &commentstring =~# '^/\*' ? '//' : substitute(&commentstring, '%s', '', 'g')
-  return trim(l:comment)
-endfunction
-call vsnip#variable#register('LINE_COMMENT', function('s:LINE_COMMENT'))
+def LINE_COMMENT(context: dict<any>): any
+  var comment = &commentstring =~# '^/\*' ? '//' : substitute(&commentstring, '%s', '', 'g')
+  return trim(comment)
+enddef
+Register('LINE_COMMENT', LINE_COMMENT)
 
-function! s:VIM(context) abort
-  let l:script = join(map(copy(a:context.node.children), 'v:val.text()'), '')
+def VIM(context: dict<any>): any
+  var script = join(mapnew(context.node.children, (_, n) => n.text()), '')
   try
-    return eval(l:script)
+    return eval(script)
   catch /.*/
   endtry
-  return v:null
-endfunction
-call vsnip#variable#register('VIM', function('s:VIM'))
+  return null
+enddef
+Register('VIM', VIM)
 
-function! s:VSNIP_CAMELCASE_FILENAME(context) abort
-  let l:basename = substitute(expand('%:p:t'), '^\@<!\..*$', '', '')
-  return substitute(l:basename, '\(\%(\<\l\+\)\%(_\)\@=\)\|_\(\l\)', '\u\1\2', 'g')
-endfunction
-call vsnip#variable#register('VSNIP_CAMELCASE_FILENAME', function('s:VSNIP_CAMELCASE_FILENAME'))
+def VSNIP_CAMELCASE_FILENAME(context: dict<any>): any
+  var basename = substitute(expand('%:p:t'), '^\@<!\..*$', '', '')
+  return substitute(basename, '\(\%(\<\l\+\)\%(_\)\@=\)\|_\(\l\)', '\u\1\2', 'g')
+enddef
+Register('VSNIP_CAMELCASE_FILENAME', VSNIP_CAMELCASE_FILENAME)

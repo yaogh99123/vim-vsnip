@@ -1,103 +1,97 @@
-let s:snippets = {}
-let s:runtimepaths = {}
+vim9script
 
-"
-" vsnip#source#vscode#refresh.
-"
-function! vsnip#source#vscode#refresh(path) abort
-  if has_key(s:snippets, a:path)
-    unlet s:snippets[a:path]
+var snippets: dict<any> = {}
+var runtimepaths: dict<any> = {}
 
-    for [l:rtp, l:v] in items(s:runtimepaths)
-      if stridx(l:rtp, a:path) == 0
-        unlet s:runtimepaths[l:rtp]
+# vsnip#source#vscode#refresh.
+export def Refresh(path: string): void
+  if has_key(snippets, path)
+    unlet snippets[path]
+
+    for [rtp, v] in items(runtimepaths)
+      if stridx(rtp, path) == 0
+        unlet runtimepaths[rtp]
       endif
     endfor
   endif
-endfunction
+enddef
 
-"
-" vsnip#source#vscode#find.
-"
-function! vsnip#source#vscode#find(bufnr) abort
-  return s:find(map(vsnip#source#filetypes(a:bufnr), 's:get_language(v:val)'))
-endfunction
+# vsnip#source#vscode#find.
+export def Find(bufnr: number): list<any>
+  return FindByLanguages(mapnew(vsnip#source#filetypes(bufnr), (_, ft) => GetLanguage(ft)))
+enddef
 
-"
-" find.
-"
-function! s:find(languages) abort
-  " Load `package.json#contributes.snippets` if does not exists it's cache.
-  let l:rtp_list = exists('*nvim_list_runtime_paths') ? nvim_list_runtime_paths() : split(&runtimepath, ',')
-  for l:rtp in l:rtp_list
-    if has_key(s:runtimepaths, l:rtp)
+# find.
+def FindByLanguages(languages: list<any>): list<any>
+  # Load `package.json#contributes.snippets` if does not exist in cache.
+  var rtp_list: list<string> = exists('*nvim_list_runtime_paths') ? nvim_list_runtime_paths() : split(&runtimepath, ',')
+  for rtp in rtp_list
+    if has_key(runtimepaths, rtp)
       continue
     endif
-    let s:runtimepaths[l:rtp] = v:true
+    runtimepaths[rtp] = true
 
     try
-      let l:package_json = resolve(expand(l:rtp . '/package.json'))
-      if !filereadable(l:package_json)
+      var package_json_path = resolve(expand(rtp .. '/package.json'))
+      if !filereadable(package_json_path)
         continue
       endif
-      let l:package_json = readfile(l:package_json)
-      let l:package_json = type(l:package_json) == type([]) ? join(l:package_json, "\n") : l:package_json
-      let l:package_json = iconv(l:package_json, 'utf-8', &encoding)
-      let l:package_json = json_decode(l:package_json)
+      var package_json_lines = readfile(package_json_path)
+      var package_json_str = type(package_json_lines) == v:t_list ? join(package_json_lines, "\n") : package_json_lines
+      package_json_str = iconv(package_json_str, 'utf-8', &encoding)
+      var package_json = json_decode(package_json_str)
 
-      " if package.json has not `contributes.snippets` fields, skip it.
-      if !has_key(l:package_json, 'contributes')
-      \ || !has_key(l:package_json.contributes, 'snippets')
+      # if package.json has not `contributes.snippets` fields, skip it.
+      if !has_key(package_json, 'contributes')
+          || !has_key(package_json.contributes, 'snippets')
         continue
       endif
 
-      " Create source if does not exists it's cache.
-      for l:snippet in l:package_json.contributes.snippets
-        let l:path = resolve(expand(l:rtp . '/' . l:snippet.path))
-        let l:languages = type(l:snippet.language) == type([]) ? l:snippet.language : [l:snippet.language]
+      # Create source if it does not exist in cache.
+      for snippet in package_json.contributes.snippets
+        var path = resolve(expand(rtp .. '/' .. snippet.path))
+        var languages = type(snippet.language) == v:t_list ? snippet.language : [snippet.language]
 
-        " if already cached `snippets.json`, add new language.
-        if has_key(s:snippets, l:path)
-          for l:language in l:languages
-            if index(s:snippets[l:path].languages, l:language) == -1
-              call add(s:snippets[l:path].languages, l:language)
+        # if already cached `snippets.json`, add new language.
+        if has_key(snippets, path)
+          for language in languages
+            if index(snippets[path].languages, language) == -1
+              add(snippets[path].languages, language)
             endif
           endfor
           continue
         endif
 
-        " register new snippet.
-        let s:snippets[l:path] = {
-        \   'languages': l:languages,
-        \ }
+        # register new snippet.
+        snippets[path] = {
+          languages: languages,
+        }
       endfor
     catch /.*/
     endtry
   endfor
 
-  " filter by language.
-  let l:sources = []
-  for l:language in a:languages
-    for [l:path, l:snippet] in items(s:snippets)
-      if index(l:snippet.languages, l:language) >= 0
-        if !has_key(l:snippet, 'source')
-          let l:snippet.source = vsnip#source#create(l:path)
-        end
-        call add(l:sources, l:snippet.source)
+  # filter by language.
+  var sources: list<any> = []
+  for language in languages
+    for [path, snippet] in items(snippets)
+      if index(snippet.languages, language) >= 0
+        if !has_key(snippet, 'source')
+          snippet.source = vsnip#source#create(path)
+        endif
+        add(sources, snippet.source)
       endif
     endfor
   endfor
-  return l:sources
-endfunction
+  return sources
+enddef
 
-"
-" get_language.
-"
-function! s:get_language(filetype) abort
+# get_language.
+def GetLanguage(filetype: string): string
   return get({
-  \   'javascript.jsx': 'javascriptreact',
-  \   'typescript.tsx': 'typescriptreact',
-  \   'sh': 'shellscript',
-  \   'cs': 'csharp',
-  \ }, a:filetype, a:filetype)
-endfunction
+    'javascript.jsx': 'javascriptreact',
+    'typescript.tsx': 'typescriptreact',
+    'sh': 'shellscript',
+    'cs': 'csharp',
+  }, filetype, filetype)
+enddef
