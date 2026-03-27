@@ -1,38 +1,30 @@
-let s:uid = 0
+vim9script
 
-function! vsnip#snippet#node#text#import() abort
-  return s:Text
-endfunction
+var uid: number = 0
 
-let s:Text = {}
+export class TextNode
+  var uid: number
+  var type: string
+  var value: string
+  var children: list<any>
 
-"
-" new.
-"
-function! s:Text.new(ast) abort
-  let s:uid += 1
+  def new(ast: dict<any>)
+    uid += 1
+    this.uid = uid
+    this.type = 'text'
+    this.value = ast.escaped
+    this.children = []
+  enddef
 
-  return extend(deepcopy(s:Text), {
-  \   'uid': s:uid,
-  \   'type': 'text',
-  \   'value': a:ast.escaped,
-  \   'children': [],
-  \ })
-endfunction
+  def text(): string
+    return this.value
+  enddef
 
-"
-" text.
-"
-function! s:Text.text() abort
-  return self.value
-endfunction
+  def to_string(): string
+    return printf('%s(%s)', this.type, this.value)
+  enddef
+endclass
 
-"
-" to_string
-"
-function! s:Text.to_string() abort
-  return printf('%s(%s)',
-  \   self.type,
-  \   self.value
-  \ )
-endfunction
+export def New(ast: dict<any>): TextNode
+  return TextNode.new(ast)
+enddef

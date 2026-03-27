@@ -1,112 +1,89 @@
-function! vsnip#snippet#node#transform#import() abort
-  return s:Transform
-endfunction
+vim9script
 
-let s:Transform = {}
+export class TransformNode
+  var type: string
+  var regex: any
+  var replacements: list<any>
+  var options: list<any>
+  var is_noop: bool
 
-"
-" new.
-"
-function! s:Transform.new(ast) abort
-  let l:transform = empty(a:ast) ? {} : a:ast
+  def new(ast: any)
+    var transform: dict<any> = empty(ast) ? {} : ast
+    this.type = 'transform'
+    this.regex = get(transform, 'regex', null)
+    this.replacements = get(transform, 'format', [])
+    this.options = get(transform, 'option', [])
+    this.is_noop = this.regex == null
+  enddef
 
-  let l:node = extend(deepcopy(s:Transform), {
-  \   'type': 'transform',
-  \   'regex': get(l:transform, 'regex', v:null),
-  \   'replacements': get(l:transform, 'format', []),
-  \   'options': get(l:transform, 'option', []),
-  \ })
-
-  let l:node.is_noop = l:node.regex is v:null
-
-  return l:node
-endfunction
-
-"
-" text.
-"
-function! s:Transform.text(input_text) abort
-  if empty(a:input_text) || self.is_noop
-    return a:input_text
-  endif
-
-  if self.regex.pattern !=# '(.*)'
-    " TODO: fully support regex
-    return a:input_text
-  endif
-
-  let l:text = ''
-
-  for l:replacement in self.replacements
-    if l:replacement.type ==# 'format'
-      if l:replacement.modifier ==# '/capitalize'
-        let l:text .= s:capitalize(a:input_text)
-      elseif l:replacement.modifier ==# '/downcase'
-        let l:text .= s:downcase(a:input_text)
-      elseif l:replacement.modifier ==# '/upcase'
-        let l:text .= s:upcase(a:input_text)
-      elseif l:replacement.modifier ==# '/camelcase'
-        let l:text .= s:camelcase(a:input_text)
-      elseif l:replacement.modifier ==# '/pascalcase'
-        let l:text .= s:capitalize(s:camelcase(a:input_text))
-      endif
-    elseif l:replacement.type ==# 'text'
-      let l:text .= l:replacement.escaped
+  def text(input_text: string): string
+    if empty(input_text) || this.is_noop
+      return input_text
     endif
-  endfor
 
-  return l:text
-endfunction
+    if (this.regex as dict<any>).pattern !=# '(.*)'
+      # TODO: fully support regex
+      return input_text
+    endif
 
-"
-" to_string
-"
-function! s:Transform.to_string() abort
-  if self.is_noop
-    return
-  end
+    var result = ''
+    for replacement in this.replacements
+      if replacement.type ==# 'format'
+        if replacement.modifier ==# '/capitalize'
+          result ..= Capitalize(input_text)
+        elseif replacement.modifier ==# '/downcase'
+          result ..= Downcase(input_text)
+        elseif replacement.modifier ==# '/upcase'
+          result ..= Upcase(input_text)
+        elseif replacement.modifier ==# '/camelcase'
+          result ..= Camelcase(input_text)
+        elseif replacement.modifier ==# '/pascalcase'
+          result ..= Capitalize(Camelcase(input_text))
+        endif
+      elseif replacement.type ==# 'text'
+        result ..= replacement.escaped
+      endif
+    endfor
 
-  return printf('%s(regex=%s, total_replacements=%s, options=%s)',
-  \   self.type,
-  \   get(self.regex, 'pattern', ''),
-  \   len(self.replacements),
-  \   join(self.options, ''),
-  \ )
-endfunction
+    return result
+  enddef
 
-"
-" upcase
-"
-function! s:upcase(word) abort
-  let word = toupper(a:word)
-  return word
-endfunction
+  def to_string(): string
+    if this.is_noop
+      return ''
+    endif
 
-"
-" downcase
-"
-function! s:downcase(word) abort
-  let word = tolower(a:word)
-  return word
-endfunction
+    return printf('%s(regex=%s, total_replacements=%s, options=%s)',
+      this.type,
+      get(this.regex as dict<any>, 'pattern', ''),
+      len(this.replacements),
+      join(this.options, ''),
+    )
+  enddef
+endclass
 
-"
-" capitalize
-"
-function! s:capitalize(word) abort
-  let word = s:upcase(strpart(a:word, 0, 1)) . strpart(a:word, 1)
-  return word
-endfunction
+export def New(ast: any): TransformNode
+  return TransformNode.new(ast)
+enddef
 
-"
-" camelcase
-" @see https://github.com/tpope/vim-abolish/blob/3f0c8faa/plugin/abolish.vim#L111-L118
-"
-function! s:camelcase(word) abort
-  let word = substitute(a:word, '-', '_', 'g')
-  if word !~# '_' && word =~# '\l'
-    return substitute(word,'^.','\l&','')
+def Upcase(word: string): string
+  return toupper(word)
+enddef
+
+def Downcase(word: string): string
+  return tolower(word)
+enddef
+
+def Capitalize(word: string): string
+  return Upcase(strpart(word, 0, 1)) .. strpart(word, 1)
+enddef
+
+# @see https://github.com/tpope/vim-abolish/blob/3f0c8faa/plugin/abolish.vim#L111-L118
+def Camelcase(word: string): string
+  var w = substitute(word, '-', '_', 'g')
+  if w !~# '_' && w =~# '\l'
+    return substitute(w, '^.', '\l&', '')
   else
-    return substitute(word,'\C\(_\)\=\(.\)','\=submatch(1)==""?tolower(submatch(2)) : toupper(submatch(2))','g')
+    return substitute(w, '\C\(_\)\=\(.\)', '\=submatch(1)==""?tolower(submatch(2)) : toupper(submatch(2))', 'g')
   endif
-endfunction
+enddef

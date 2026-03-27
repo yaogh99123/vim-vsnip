@@ -1,62 +1,54 @@
-let s:uid = 0
+vim9script
 
-"
-" vsnip#snippet#node#variable#import
-"
-function! vsnip#snippet#node#variable#import() abort
-  return s:Variable
-endfunction
+var uid: number = 0
 
-let s:Variable = {}
+export class VariableNode
+  var uid: number
+  var type: string
+  var name: string
+  var unknown: bool
+  var resolver: any
+  var children: list<any>
+  var transform: any
 
-"
-" new.
-"
-function! s:Variable.new(ast) abort
-  let s:uid += 1
+  def new(ast: dict<any>)
+    uid += 1
+    this.uid = uid
+    this.type = 'variable'
+    this.name = ast.name
+    var resolver = vsnip#variable#get(ast.name)
+    this.unknown = empty(resolver)
+    this.resolver = resolver
+    this.children = vsnip#snippet#node#create_from_ast(get(ast, 'children', []))
+    this.transform = vsnip#snippet#node#create_transform(get(ast, 'transform', null))
+  enddef
 
-  let l:resolver = vsnip#variable#get(a:ast.name)
-  return extend(deepcopy(s:Variable), {
-  \   'uid': s:uid,
-  \   'type': 'variable',
-  \   'name': a:ast.name,
-  \   'unknown': empty(l:resolver),
-  \   'resolver': l:resolver,
-  \   'children': vsnip#snippet#node#create_from_ast(get(a:ast, 'children', [])),
-  \   'transform': vsnip#snippet#node#create_transform(get(a:ast, 'transform')),
-  \ })
-endfunction
+  def text(): string
+    return this.transform.text(join(mapnew(this.children, (_, n) => n.text()), ''))
+  enddef
 
-"
-" text.
-"
-function! s:Variable.text() abort
-  return self.transform.text(join(map(copy(self.children), 'v:val.text()'), ''))
-endfunction
-
-"
-" resolve.
-"
-function! s:Variable.resolve(context) abort
-  if !self.unknown
-    let l:resolved = self.transform.text(self.resolver.func({ 'node': self }))
-    if l:resolved isnot v:null
-      " Fix indent when one variable returns multiple lines
-      let l:base_indent = vsnip#indent#get_base_indent(split(a:context.before_text, "\n", v:true)[-1])
-      return substitute(l:resolved, "\n\\zs", l:base_indent, 'g')
+  def resolve(context: dict<any>): any
+    if !this.unknown
+      var resolved = this.transform.text(this.resolver.func({node: this}))
+      if resolved != null
+        # Fix indent when one variable returns multiple lines
+        var base_indent = vsnip#indent#get_base_indent(split(context.before_text, "\n", true)[-1])
+        return substitute(resolved, "\n\\zs", base_indent, 'g')
+      endif
     endif
-  endif
-  return v:null
-endfunction
+    return null
+  enddef
 
-"
-" to_string
-"
-function! s:Variable.to_string() abort
-  return printf('%s(name=%s, unknown=%s, text=%s)',
-  \   self.type,
-  \   self.name,
-  \   self.unknown ? 'true' : 'false',
-  \   self.text()
-  \ )
-endfunction
+  def to_string(): string
+    return printf('%s(name=%s, unknown=%s, text=%s)',
+      this.type,
+      this.name,
+      this.unknown ? 'true' : 'false',
+      this.text()
+    )
+  enddef
+endclass
+
+export def New(ast: dict<any>): VariableNode
+  return VariableNode.new(ast)
+enddef
