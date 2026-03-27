@@ -2,10 +2,10 @@ let s:expect = themis#helper('expect')
 
 Describe vsnip#snippet#parser
 
-  Describe #parse
+  Describe #Parse
 
     It should parse text
-      let l:parsed = vsnip#snippet#parser#parse('console.log()')
+      let l:parsed = vsnip#snippet#parser#Parse('console.log()')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -15,7 +15,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse tabstop
-      let l:parsed = vsnip#snippet#parser#parse('console.log($0$1${1/(.*)/${1:/capitalize}/})')
+      let l:parsed = vsnip#snippet#parser#Parse('console.log($0$1${1/(.*)/${1:/capitalize}/})')
       call s:expect(len(l:parsed)).to_equal(5)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -58,7 +58,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse choice
-      let l:parsed = vsnip#snippet#parser#parse("${1|log,warn,error|}")
+      let l:parsed = vsnip#snippet#parser#Parse("${1|log,warn,error|}")
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'placeholder',
       \   'id': 1,
@@ -84,7 +84,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse complex escaped chars
-      let l:parsed = vsnip#snippet#parser#parse('\\\$variable\}')
+      let l:parsed = vsnip#snippet#parser#Parse('\\\$variable\}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -94,7 +94,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse escapable char
-      let l:parsed = vsnip#snippet#parser#parse('{\}')
+      let l:parsed = vsnip#snippet#parser#Parse('{\}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -104,7 +104,7 @@ Describe vsnip#snippet#parser
     End
 
     It should not remove unmeaningful escape
-      let l:parsed = vsnip#snippet#parser#parse('\{}')
+      let l:parsed = vsnip#snippet#parser#Parse('\{}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -114,7 +114,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse omitted backslash for the escapable non-stop char
-      let l:parsed = vsnip#snippet#parser#parse('{}')
+      let l:parsed = vsnip#snippet#parser#Parse('{}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -124,7 +124,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse nested placeholder
-      let l:parsed = vsnip#snippet#parser#parse('class $1${2: extends ${3:SuperClass}} { $0 }')
+      let l:parsed = vsnip#snippet#parser#Parse('class $1${2: extends ${3:SuperClass}} { $0 }')
       call s:expect(len(l:parsed)).to_equal(6)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'text',
@@ -171,7 +171,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse simple variable
-      let l:parsed = vsnip#snippet#parser#parse('${variable:default}')
+      let l:parsed = vsnip#snippet#parser#Parse('${variable:default}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'variable',
@@ -185,7 +185,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse variable with multiple children
-      let l:parsed = vsnip#snippet#parser#parse('${variable: $1}')
+      let l:parsed = vsnip#snippet#parser#Parse('${variable: $1}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'variable',
@@ -203,7 +203,7 @@ Describe vsnip#snippet#parser
     End
 
     It should parse variable with regex
-      let l:parsed = vsnip#snippet#parser#parse('${variable/(.*)/${1:/capitalize}/}')
+      let l:parsed = vsnip#snippet#parser#Parse('${variable/(.*)/${1:/capitalize}/}')
       call s:expect(len(l:parsed)).to_equal(1)
       call s:expect(l:parsed[0]).to_equal({
       \   'type': 'variable',

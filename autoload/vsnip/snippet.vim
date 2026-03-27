@@ -20,7 +20,7 @@ function! s:Snippet.new(position, text) abort
   \   'position': a:position,
   \   'before_text': getline(l:pos[0])[0 : l:pos[1] - 2],
   \   'children': vsnip#snippet#node#create_from_ast(
-  \     vsnip#snippet#parser#parse(a:text)
+  \     vsnip#snippet#parser#Parse(a:text)
   \   )
   \ })
   call l:snippet.init()
