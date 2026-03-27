@@ -1,557 +1,472 @@
-let s:max_tabstop = 1000000
-let s:Position = vital#vsnip#import('VS.LSP.Position')
+vim9script
 
-"
-" import.
-"
-function! vsnip#snippet#import() abort
-  return s:Snippet
-endfunction
+const max_tabstop: number = 1000000
+var Position: dict<any> = vital#vsnip#import('VS.LSP.Position')
 
-let s:Snippet = {}
+export class SnippetNode
+  var type: string
+  var position: dict<any>
+  var before_text: string
+  var children: list<any>
 
-"
-" new.
-"
-function! s:Snippet.new(position, text) abort
-  let l:pos = s:Position.lsp_to_vim('%', a:position)
-  let l:snippet = extend(deepcopy(s:Snippet), {
-  \   'type': 'snippet',
-  \   'position': a:position,
-  \   'before_text': getline(l:pos[0])[0 : l:pos[1] - 2],
-  \   'children': vsnip#snippet#node#create_from_ast(
-  \     vsnip#snippet#parser#Parse(a:text)
-  \   )
-  \ })
-  call l:snippet.init()
-  call l:snippet.sync()
-  return l:snippet
-endfunction
+  def new(pos: dict<any>, text: string)
+    var lpos = Position.lsp_to_vim('%', pos)
+    this.type = 'snippet'
+    this.position = pos
+    this.before_text = getline(lpos[0])[0 : lpos[1] - 2]
+    this.children = vsnip#snippet#node#create_from_ast(
+      vsnip#snippet#parser#Parse(text)
+    )
+    this.init()
+    this.sync()
+  enddef
 
-"
-" init.
-"
-" NOTE: Must not use the node range in this method.
-"
-function! s:Snippet.init() abort
-  let l:fn = {}
-  let l:fn.self = self
-  let l:fn.group = {}
-  let l:fn.variable_placeholder = {}
-  let l:fn.has_final_tabstop = v:false
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder'
-      " Mark as follower placeholder.
-      if !has_key(self.group, a:context.node.id)
-        let self.group[a:context.node.id] = a:context.node
-      else
-        let a:context.node.follower = v:true
-      endif
+  def init()
+    var group: dict<any> = {}
+    var variable_placeholder: dict<any> = {}
+    var has_final_tabstop = false
 
-      " Mark as having final tabstop
-      if a:context.node.is_final
-        let self.has_final_tabstop = v:true
-      endif
-    elseif a:context.node.type ==# 'variable'
-      " TODO refactor
-      " variable placeholder
-      if a:context.node.unknown
-        let a:context.node.type = 'placeholder'
-        let a:context.node.choice = []
-
-        if !has_key(self.variable_placeholder, a:context.node.name)
-          let self.variable_placeholder[a:context.node.name] = s:max_tabstop - (len(self.variable_placeholder) + 1)
-          let a:context.node.id = self.variable_placeholder[a:context.node.name]
-          let a:context.node.follower = v:false
-          let a:context.node.children = empty(a:context.node.children) ? [vsnip#snippet#node#create_text(a:context.node.name)] : a:context.node.children
-          let self.group[a:context.node.id] =  a:context.node
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder'
+        if !has_key(group, context.node.id)
+          group[context.node.id] = context.node
         else
-          let a:context.node.id = self.variable_placeholder[a:context.node.name]
-          let a:context.node.follower = v:true
-          let a:context.node.children = [vsnip#snippet#node#create_text(self.group[a:context.node.id].text())]
+          context.node.follower = true
         endif
-      else
-        let l:text = a:context.node.resolve(a:context)
-        let l:text = l:text is# v:null ? a:context.text : l:text
-        let l:index = index(a:context.parent.children, a:context.node)
-        call remove(a:context.parent.children, l:index)
-        call insert(a:context.parent.children, vsnip#snippet#node#create_text(l:text), l:index)
+        if context.node.is_final
+          has_final_tabstop = true
+        endif
+      elseif context.node.type ==# 'variable'
+        if context.node.unknown
+          context.node.type = 'placeholder'
+          context.node.choice = []
+          if !has_key(variable_placeholder, context.node.name)
+            variable_placeholder[context.node.name] = max_tabstop - (len(variable_placeholder) + 1)
+            context.node.id = variable_placeholder[context.node.name]
+            context.node.follower = false
+            context.node.children = empty(context.node.children) ? [vsnip#snippet#node#create_text(context.node.name)] : context.node.children
+            group[context.node.id] = context.node
+          else
+            context.node.id = variable_placeholder[context.node.name]
+            context.node.follower = true
+            context.node.children = [vsnip#snippet#node#create_text(group[context.node.id].text())]
+          endif
+        else
+          var txt: any = context.node.resolve(context)
+          txt = txt is v:null ? context.text : txt
+          var idx = index(context.parent.children, context.node)
+          remove(context.parent.children, idx)
+          insert(context.parent.children, vsnip#snippet#node#create_text(txt), idx)
+        endif
       endif
+      return false
+    })
+
+    if !has_final_tabstop && g:vsnip_append_final_tabstop
+      this.children += [vsnip#snippet#node#create_from_ast({
+        'type': 'placeholder',
+        'id': 0,
+        'choice': [],
+      })]
     endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
+  enddef
 
-  " Append ${MAX_TABSTOP} for the end of snippet.
-  if !l:fn.has_final_tabstop && g:vsnip_append_final_tabstop
-    let self.children += [vsnip#snippet#node#create_from_ast({
-    \   'type': 'placeholder',
-    \   'id': 0,
-    \   'choice': [],
-    \ })]
-  endif
-endfunction
-
-"
-" follow.
-"
-function! s:Snippet.follow(current_tabstop, diff) abort
-  if !self.is_followable(a:current_tabstop, a:diff)
-    return v:false
-  endif
-
-  let a:diff.range = [
-  \   self.position_to_offset(a:diff.range.start),
-  \   self.position_to_offset(a:diff.range.end),
-  \ ]
-
-  let l:fn = {}
-  let l:fn.current_tabstop = a:current_tabstop
-  let l:fn.diff = a:diff
-  let l:fn.is_target_context_fixed = v:false
-  let l:fn.target_context = v:null
-  let l:fn.contexts = []
-  function! l:fn.traverse(context) abort
-    if self.diff.range[1] < a:context.range[0]
-      return v:true
+  def follow(current_tabstop: number, diff: dict<any>): bool
+    if !this.is_followable(current_tabstop, diff)
+      return false
     endif
-    if a:context.node.type !=# 'text'
+
+    diff.range = [
+      this.position_to_offset(diff.range.start),
+      this.position_to_offset(diff.range.end),
+    ]
+
+    var is_target_context_fixed = false
+    var target_context: any = null
+    var contexts: list<any> = []
+
+    this.traverse((context: dict<any>): any => {
+      if diff.range[1] < context.range[0]
+        return true
+      endif
+      if context.node.type !=# 'text'
+        return false
+      endif
+
+      var included = false
+      included = included || context.range[0] <= diff.range[0] && diff.range[0] < context.range[1]
+      included = included || context.range[0] < diff.range[1] && diff.range[1] <= context.range[1]
+      included = included || diff.range[0] <= context.range[0] && context.range[1] <= diff.range[1]
+      if included
+        if !is_target_context_fixed && (empty(target_context) && context.parent.type ==# 'placeholder' || get(context.parent, 'id', -1) == current_tabstop)
+          is_target_context_fixed = get(context.parent, 'id', -1) == current_tabstop
+          target_context = context
+        endif
+        add(contexts, context)
+      endif
+      return false
+    })
+
+    if empty(contexts)
+      return false
+    endif
+
+    target_context = empty(target_context) ? contexts[-1] : target_context
+
+    var diff_text = diff.text
+    for ctx in contexts
+      var diff_range = [max([diff.range[0], ctx.range[0]]), min([diff.range[1], ctx.range[1]])]
+      var start = diff_range[0] - ctx.range[0]
+      var end_ = diff_range[1] - ctx.range[0]
+
+      var new_text = strcharpart(ctx.text, 0, start)
+      if target_context is ctx
+        new_text ..= diff_text
+      endif
+      new_text ..= strcharpart(ctx.text, end_, ctx.length - end_)
+
+      ctx.node.value = new_text
+    endfor
+
+    var squashed: list<any> = []
+    for ctx in contexts
+      var squash_targets = ctx.parents + [ctx.node]
+      for i in range(len(squash_targets) - 1, 1, -1)
+        var node = squash_targets[i]
+        var parent = squash_targets[i - 1]
+
+        var should_squash = false
+        should_squash = should_squash || get(node, 'follower', false)
+        should_squash = should_squash || get(parent, 'id', -1) == current_tabstop
+        should_squash = should_squash || (ctx isnot target_context) && strlen(node.text()) == 0
+        if should_squash && index(squashed, node) == -1
+          var idx = index(parent.children, node)
+          remove(parent.children, idx)
+          insert(parent.children, vsnip#snippet#node#create_text(node.text()), idx)
+          add(squashed, node)
+        endif
+      endfor
+    endfor
+
+    return true
+  enddef
+
+  def sync(): list<any>
+    var new_texts: dict<any> = {}
+    var targets: list<any> = []
+
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder'
+        if !has_key(new_texts, context.node.id)
+          new_texts[context.node.id] = context.text
+        else
+          if new_texts[context.node.id] !=# context.text
+            add(targets, {
+              range: context.range,
+              node: context.node,
+              new_text: context.node.transform.text(new_texts[context.node.id]),
+            })
+          endif
+        endif
+      endif
+      return false
+    })
+
+    var text_edits: list<any> = []
+    for target in targets
+      add(text_edits, {
+        node: target.node,
+        range: {
+          start: this.offset_to_position(target.range[0]),
+          end: this.offset_to_position(target.range[1]),
+        },
+        newText: target.new_text
+      })
+    endfor
+
+    for text_edit in text_edits
+      text_edit.node.children = [vsnip#snippet#node#create_text(text_edit.newText)]
+    endfor
+
+    return text_edits
+  enddef
+
+  def range(): dict<any>
+    return {
+      start: this.offset_to_position(0),
+      end: this.offset_to_position(strchars(this.text())),
+    }
+  enddef
+
+  def text(): string
+    return join(mapnew(this.children, (_, n) => n.text()), '')
+  enddef
+
+  def is_followable(current_tabstop: number, diff: dict<any>): bool
+    if g:['vsnip#DeactivateOn']['OutsideOfSnippet'] == g:vsnip_deactivate_on
+      return vsnip#range#cover(this.range(), diff.range)
+    elseif g:['vsnip#DeactivateOn']['OutsideOfCurrentTabstop'] == g:vsnip_deactivate_on
+      var ctx = this.get_placeholder_context_by_tabstop(current_tabstop)
+      if empty(ctx)
+        return false
+      endif
+      return vsnip#range#cover({
+        start: this.offset_to_position(ctx.range[0]),
+        end: this.offset_to_position(ctx.range[1]),
+      }, diff.range)
+    endif
+    return false
+  enddef
+
+  def get_placeholder_nodes(): list<any>
+    var nodes: list<any> = []
+
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder'
+        add(nodes, context.node)
+      endif
+      return false
+    })
+
+    return sort(nodes, (a, b) => a.id - b.id)
+  enddef
+
+  def get_placeholder_context_by_tabstop(current_tabstop: number): any
+    var result: any = null
+
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder' && context.node.id == current_tabstop
+        result = context
+        return true
+      endif
+      return false
+    })
+
+    return result
+  enddef
+
+  def get_next_jump_point(current_tabstop: number): any
+    var result: any = null
+
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder' && current_tabstop < context.node.id
+        if !empty(result) && result.node.id <= context.node.id
+          return false
+        endif
+        result = copy(context)
+      endif
+      return false
+    })
+
+    if empty(result)
+      return {}
+    endif
+
+    return {
+      placeholder: result.node,
+      range: {
+        start: this.offset_to_position(result.range[0]),
+        end: this.offset_to_position(result.range[1]),
+      }
+    }
+  enddef
+
+  def get_prev_jump_point(current_tabstop: number): any
+    var result: any = null
+
+    this.traverse((context: dict<any>): any => {
+      if context.node.type ==# 'placeholder' && current_tabstop > context.node.id
+        if !empty(result) && result.node.id >= context.node.id
+          return false
+        endif
+        result = copy(context)
+      endif
+      return false
+    })
+
+    if empty(result)
+      return {}
+    endif
+
+    return {
+      placeholder: result.node,
+      range: {
+        start: this.offset_to_position(result.range[0]),
+        end: this.offset_to_position(result.range[1]),
+      }
+    }
+  enddef
+
+  def normalize()
+    var prev_context: any = null
+
+    this.traverse((context: dict<any>): any => {
+      if !empty(prev_context)
+        if prev_context.node.type ==# 'text' && context.node.type ==# 'text' && prev_context.parent is context.parent
+          context.node.value = prev_context.node.value .. context.node.value
+          remove(prev_context.parent.children, index(prev_context.parent.children, prev_context.node))
+        endif
+      endif
+      prev_context = copy(context)
+      return false
+    })
+  enddef
+
+  def merge(tabstop: number, snippet: SnippetNode)
+    var offset = 1
+    var tabstop_map: dict<any> = {}
+    var tail: any = null
+    for node in snippet.get_placeholder_nodes()
+      if !has_key(tabstop_map, node.id)
+        tabstop_map[node.id] = tabstop + offset
+      endif
+      node.id = tabstop_map[node.id]
+      offset += 1
+      tail = node
+    endfor
+    if empty(tabstop_map)
       return
     endif
 
-    let l:included = v:false
-    let l:included = l:included || a:context.range[0] <= self.diff.range[0] && self.diff.range[0] < a:context.range[1] " right
-    let l:included = l:included || a:context.range[0] < self.diff.range[1] && self.diff.range[1] <= a:context.range[1] " left
-    let l:included = l:included || self.diff.range[0] <= a:context.range[0] && a:context.range[1] <= self.diff.range[1] " middle
-    if l:included
-      if !self.is_target_context_fixed && (empty(self.target_context) && a:context.parent.type ==# 'placeholder' || get(a:context.parent, 'id', -1) == self.current_tabstop)
-        let self.is_target_context_fixed = get(a:context.parent, 'id', -1) == self.current_tabstop
-        let self.target_context = a:context
-      endif
-      call add(self.contexts, a:context)
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-
-  if empty(l:fn.contexts)
-    return v:false
-  endif
-
-  let l:fn.target_context = empty(l:fn.target_context) ? l:fn.contexts[-1] : l:fn.target_context
-
-  let l:diff_text = a:diff.text
-  for l:context in l:fn.contexts
-    let l:diff_range = [max([a:diff.range[0], l:context.range[0]]), min([a:diff.range[1], l:context.range[1]])]
-    let l:start = l:diff_range[0] - l:context.range[0]
-    let l:end = l:diff_range[1] - l:context.range[0]
-
-    " Create patched new text.
-    let l:new_text = strcharpart(l:context.text, 0, l:start)
-    if l:fn.target_context is# l:context
-      let l:new_text .= l:diff_text
-      let l:followed = v:true
-    endif
-    let l:new_text .= strcharpart(l:context.text, l:end, l:context.length - l:end)
-
-    " Apply patched new text.
-    let l:context.node.value = l:new_text
-  endfor
-
-  " Squash nodes when the edit was unexpected
-  let l:squashed = []
-  for l:context in l:fn.contexts
-    let l:squash_targets = l:context.parents + [l:context.node]
-    for l:i in range(len(l:squash_targets) - 1, 1, -1)
-      let l:node = l:squash_targets[l:i]
-      let l:parent = l:squash_targets[l:i - 1]
-
-      let l:should_squash = v:false
-      let l:should_squash = l:should_squash || get(l:node, 'follower', v:false)
-      let l:should_squash = l:should_squash || get(l:parent, 'id', v:null) is# a:current_tabstop
-      let l:should_squash = l:should_squash || l:context isnot# l:fn.target_context && strlen(l:node.text()) == 0
-      if l:should_squash && index(l:squashed, l:node) == -1
-        let l:index = index(l:parent.children, l:node)
-        call remove(l:parent.children, l:index)
-        call insert(l:parent.children, vsnip#snippet#node#create_text(l:node.text()), l:index)
-        call add(l:squashed, l:node)
+    offset = 1
+    tabstop_map = {}
+    for node in this.get_placeholder_nodes()
+      if node.id > tabstop
+        if !has_key(tabstop_map, node.id)
+          tabstop_map[node.id] = tail.id + offset
+        endif
+        node.id = tabstop_map[node.id]
+        offset += 1
       endif
     endfor
-  endfor
+  enddef
 
-  return v:true
-endfunction
+  def insert(pos: dict<any>, nodes_to_insert: list<any>)
+    var offset_ = this.position_to_offset(pos)
 
-"
-" sync.
-"
-function! s:Snippet.sync() abort
-  let l:fn = {}
-  let l:fn.new_texts = {}
-  let l:fn.targets = []
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder'
-      if !has_key(self.new_texts, a:context.node.id)
-        let self.new_texts[a:context.node.id] = a:context.text
-      else
-        if self.new_texts[a:context.node.id] !=# a:context.text
-          call add(self.targets, {
-          \   'range': a:context.range,
-          \   'node': a:context.node,
-          \   'new_text': a:context.node.transform.text(self.new_texts[a:context.node.id]),
-          \ })
+    var result: any = null
+
+    this.traverse((context: dict<any>): any => {
+      if context.range[0] <= offset_ && offset_ <= context.range[1] && context.node.type ==# 'text'
+        if empty(result) || result.depth <= context.depth
+          result = copy(context)
         endif
       endif
+      return false
+    })
+
+    if empty(result)
+      return
     endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
 
-  " Create text_edits.
-  let l:text_edits = []
-  for l:target in l:fn.targets
-    call add(l:text_edits, {
-    \   'node': l:target.node,
-    \   'range': {
-    \     'start': self.offset_to_position(l:target.range[0]),
-    \     'end': self.offset_to_position(l:target.range[1]),
-    \   },
-    \   'newText': l:target.new_text
-    \ })
-  endfor
+    var idx = index(result.parent.children, result.node)
+    remove(result.parent.children, idx)
 
-  " Sync placeholder text after created text_edits (the reason is to avoid using a modified range).
-  for l:text_edit in l:text_edits
-    let l:text_edit.node.children = [vsnip#snippet#node#create_text(l:text_edit.newText)]
-  endfor
-
-  return l:text_edits
-endfunction
-
-"
-" range.
-"
-function! s:Snippet.range() abort
-  return {
-  \   'start': self.offset_to_position(0),
-  \   'end': self.offset_to_position(strchars(self.text()))
-  \ }
-endfunction
-
-"
-" text.
-"
-function! s:Snippet.text() abort
-  return join(map(copy(self.children), 'v:val.text()'), '')
-endfunction
-
-"
-" is_followable.
-"
-function! s:Snippet.is_followable(current_tabstop, diff) abort
-  if g:vsnip#DeactivateOn.OutsideOfSnippet == g:vsnip_deactivate_on
-    return vsnip#range#cover(self.range(), a:diff.range)
-  elseif g:vsnip#DeactivateOn.OutsideOfCurrentTabstop == g:vsnip_deactivate_on
-    let l:context = self.get_placeholder_context_by_tabstop(a:current_tabstop)
-    if empty(l:context)
-      return v:false
+    var nodes_rev = reverse(copy(nodes_to_insert))
+    if result.node.value !=# ''
+      var off = offset_ - result.range[0]
+      var before = vsnip#snippet#node#create_text(strcharpart(result.node.value, 0, off))
+      var after = vsnip#snippet#node#create_text(strcharpart(result.node.value, off, strchars(result.node.value) - off))
+      nodes_rev = [after] + nodes_rev + [before]
     endif
-    return vsnip#range#cover({
-    \   'start': self.offset_to_position(l:context.range[0]),
-    \   'end': self.offset_to_position(l:context.range[1]),
-    \ }, a:diff.range)
-  endif
-endfunction
 
-"
-" get_placeholder_nodes
-"
-function! s:Snippet.get_placeholder_nodes() abort
-  let l:fn =  {}
-  let l:fn.nodes = []
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder'
-      call add(self.nodes, a:context.node)
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
+    for node in nodes_rev
+      insert(result.parent.children, node, idx)
+    endfor
 
-  return sort(l:fn.nodes, { a, b -> a.id - b.id })
-endfunction
+    this.normalize()
+  enddef
 
-"
-" get_placeholder_context_by_tabstop
-"
-function! s:Snippet.get_placeholder_context_by_tabstop(current_tabstop) abort
-  let l:fn =  {}
-  let l:fn.current_tabstop = a:current_tabstop
-  let l:fn.context = v:null
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder' && a:context.node.id == self.current_tabstop
-      let self.context = a:context
-      return v:true
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-  return l:fn.context
-endfunction
+  def offset_to_position(offset: number): dict<any>
+    var lines = split(strcharpart(this.text(), 0, offset), "\n", true)
+    return {
+      line: this.position.line + len(lines) - 1,
+      character: strchars(lines[-1]) + (len(lines) == 1 ? this.position.character : 0),
+    }
+  enddef
 
-"
-" get_next_jump_point.
-"
-function! s:Snippet.get_next_jump_point(current_tabstop) abort
-  let l:fn = {}
-  let l:fn.current_tabstop = a:current_tabstop
-  let l:fn.context = v:null
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder' && self.current_tabstop < a:context.node.id
-      if !empty(self.context) && self.context.node.id <= a:context.node.id
-        return v:false
-      endif
+  def position_to_offset(position: dict<any>): number
+    var line = position.line - this.position.line
+    var char = position.character - (line == 0 ? this.position.character : 0)
+    var lines = split(this.text(), "\n", true)[0 : line]
+    lines[-1] = strcharpart(lines[-1], 0, char)
+    return strchars(join(lines, "\n"))
+  enddef
 
-      let self.context = copy(a:context)
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
+  def traverse(Callback: func(dict<any>): any)
+    var state: dict<any> = {
+      offset: 0,
+      before_text: this.before_text,
+    }
+    var context: dict<any> = {
+      depth: 0,
+      parent: null,
+      parents: [],
+    }
+    Traverse(this, Callback, state, context)
+  enddef
 
-  let l:context = l:fn.context
-  if empty(l:context)
-    return {}
-  endif
+  def debug()
+    echomsg 'snippet.text()'
+    for line in split(this.text(), "\n", true)
+      echomsg string(line)
+    endfor
+    echomsg '-----'
 
-  return {
-  \   'placeholder': l:context.node,
-  \   'range': {
-  \     'start': self.offset_to_position(l:context.range[0]),
-  \     'end': self.offset_to_position(l:context.range[1])
-  \   }
-  \ }
-endfunction
+    this.traverse((context: dict<any>): any => {
+      echomsg repeat('    ', context.depth - 1) .. context.node.to_string()
+      return false
+    })
+    echomsg ' '
+  enddef
+endclass
 
-"
-" get_prev_jump_point.
-"
-function! s:Snippet.get_prev_jump_point(current_tabstop) abort
-  let l:fn = {}
-  let l:fn.current_tabstop = a:current_tabstop
-  let l:fn.context = v:null
-  function! l:fn.traverse(context) abort
-    if a:context.node.type ==# 'placeholder' && self.current_tabstop > a:context.node.id
-      if !empty(self.context) && self.context.node.id >= a:context.node.id
-        return v:false
-      endif
-      let self.context = copy(a:context)
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-
-  let l:context = l:fn.context
-  if empty(l:context)
-    return {}
-  endif
-
-  return {
-  \   'placeholder': l:context.node,
-  \   'range': {
-  \     'start': self.offset_to_position(l:context.range[0]),
-  \     'end': self.offset_to_position(l:context.range[1])
-  \   }
-  \ }
-endfunction
-
-"
-" normalize
-"
-" - merge adjacent text-nodes
-"
-function! s:Snippet.normalize() abort
-  let l:fn = {}
-  let l:fn.prev_context = v:null
-  function! l:fn.traverse(context) abort
-    if !empty(self.prev_context)
-      if self.prev_context.node.type ==# 'text' && a:context.node.type ==# 'text' && self.prev_context.parent is# a:context.parent
-        let a:context.node.value = self.prev_context.node.value . a:context.node.value
-        call remove(self.prev_context.parent.children, index(self.prev_context.parent.children, self.prev_context.node))
-      endif
-    endif
-    let self.prev_context = copy(a:context)
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-endfunction
-
-"
-" merge
-"
-function! s:Snippet.merge(tabstop, snippet) abort
-  " increase new snippet's tabstop by current snippet's current tabstop
-  let l:offset = 1
-  let l:tabstop_map = {}
-  for l:node in a:snippet.get_placeholder_nodes()
-    if !has_key(l:tabstop_map, l:node.id)
-      let l:tabstop_map[l:node.id] = a:tabstop + l:offset
-    endif
-    let l:node.id = l:tabstop_map[l:node.id]
-    let l:offset += 1
-  endfor
-  if empty(l:tabstop_map)
-    return
-  endif
-
-  let l:tail = l:node
-
-  " re-assign current snippet's tabstop by new snippet's final tabstop
-  let l:offset = 1
-  let l:tabstop_map = {}
-  for l:node in self.get_placeholder_nodes()
-    if l:node.id > a:tabstop
-      if !has_key(l:tabstop_map, l:node.id)
-        let l:tabstop_map[l:node.id] = l:tail.id + l:offset
-      endif
-      let l:node.id = l:tabstop_map[l:node.id]
-      let l:offset += 1
-    endif
-  endfor
-endfunction
-
-"
-" insert
-"
-function! s:Snippet.insert(position, nodes_to_insert) abort
-  let l:offset = self.position_to_offset(a:position)
-
-  " Search target node for inserting nodes.
-  let l:fn = {}
-  let l:fn.offset = l:offset
-  let l:fn.context = v:null
-  function! l:fn.traverse(context) abort
-    if a:context.range[0] <= self.offset && self.offset <= a:context.range[1] && a:context.node.type ==# 'text'
-      " prefer more deeper node.
-      if empty(self.context) || self.context.depth <= a:context.depth
-        let self.context = copy(a:context)
-      endif
-    endif
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-
-  " This condition is unexpected normally
-  let l:context = l:fn.context
-  if empty(l:context)
-    return
-  endif
-
-  " Remove target text node
-  let l:index = index(l:context.parent.children, l:context.node)
-  call remove(l:context.parent.children, l:index)
-
-  " Should insert into existing text node when position is middle of node
-  let l:nodes_to_insert = reverse(a:nodes_to_insert)
-  if l:context.node.value !=# ''
-    let l:off = l:offset - l:context.range[0]
-    let l:before = vsnip#snippet#node#create_text(strcharpart(l:context.node.value, 0, l:off))
-    let l:after = vsnip#snippet#node#create_text(strcharpart(l:context.node.value, l:off, strchars(l:context.node.value) - l:off))
-    let l:nodes_to_insert = [l:after] + l:nodes_to_insert + [l:before]
-  endif
-
-  " Insert nodes.
-  for l:node in l:nodes_to_insert
-    call insert(l:context.parent.children, l:node, l:index)
-  endfor
-
-  call self.normalize()
-endfunction
-
-"
-" offset_to_position.
-"
-" @param offset 0-based index for snippet text.
-" @return position buffer position
-"
-function! s:Snippet.offset_to_position(offset) abort
-  let l:lines = split(strcharpart(self.text(), 0, a:offset), "\n", v:true)
-  return {
-  \   'line': self.position.line + len(l:lines) - 1,
-  \   'character': strchars(l:lines[-1]) + (len(l:lines) == 1 ? self.position.character : 0),
-  \ }
-endfunction
-
-"
-" position_to_offset.
-"
-" @param position buffer position
-" @return 0-based index for snippet text.
-"
-function! s:Snippet.position_to_offset(position) abort
-  let l:line = a:position.line - self.position.line
-  let l:char = a:position.character - (l:line == 0 ? self.position.character : 0)
-  let l:lines = split(self.text(), "\n", v:true)[0 : l:line]
-  let l:lines[-1] = strcharpart(l:lines[-1], 0, l:char)
-  return strchars(join(l:lines, "\n"))
-endfunction
-
-"
-" traverse.
-"
-function! s:Snippet.traverse(node, callback) abort
-  let l:state = {
-  \   'offset': 0,
-  \   'before_text': self.before_text,
-  \ }
-  let l:context = {
-  \   'depth': 0,
-  \   'parent': v:null,
-  \   'parents': [],
-  \ }
-  call s:traverse(a:node, a:callback, l:state, l:context)
-endfunction
-function! s:traverse(node, callback, state, context) abort
-  let l:text = ''
-  let l:length = 0
-  if a:node.type !=# 'snippet'
-    let l:text = a:node.text()
-    let l:length = strchars(l:text)
-    if a:callback({
-    \   'node': a:node,
-    \   'text': l:text,
-    \   'length': l:length,
-    \   'parent': a:context.parent,
-    \   'parents': a:context.parents,
-    \   'depth': a:context.depth,
-    \   'offset': a:state.offset,
-    \   'before_text': a:state.before_text,
-    \   'range': [a:state.offset, a:state.offset + l:length],
-    \ })
-      return v:true
+# Recursive traversal helper
+def Traverse(node: any, Callback: func(dict<any>): any, state: dict<any>, context: dict<any>): bool
+  var text = ''
+  var length = 0
+  if node.type !=# 'snippet'
+    text = node.text()
+    length = strchars(text)
+    if Callback({
+      node: node,
+      text: text,
+      length: length,
+      parent: context.parent,
+      parents: context.parents,
+      depth: context.depth,
+      offset: state.offset,
+      before_text: state.before_text,
+      range: [state.offset, state.offset + length],
+    })
+      return true
     endif
   endif
 
-  if len(a:node.children) > 0
-    let l:next_context = {
-      \   'parent': a:node,
-      \   'parents': a:context.parents + [a:node],
-      \   'depth': len(a:context.parents) + 1,
-      \ }
-    for l:child in copy(a:node.children)
-      if s:traverse(l:child, a:callback, a:state, l:next_context)
-        return v:true
+  if len(node.children) > 0
+    var next_context: dict<any> = {
+      parent: node,
+      parents: context.parents + [node],
+      depth: len(context.parents) + 1,
+    }
+    for child in copy(node.children)
+      if Traverse(child, Callback, state, next_context)
+        return true
       endif
     endfor
   else
-    let a:state.before_text .= l:text
-    let a:state.offset += l:length
+    state.before_text ..= text
+    state.offset += length
   endif
-endfunction
+  return false
+enddef
 
-"
-" debug
-"
-function! s:Snippet.debug() abort
-  echomsg 'snippet.text()'
-  for l:line in split(self.text(), "\n", v:true)
-    echomsg string(l:line)
-  endfor
-  echomsg '-----'
+# Backward-compatible import function used by legacy callers and specs
+export def import(): dict<any>
+  return {new: New}
+enddef
 
-  let l:fn = {}
-  function! l:fn.traverse(context) abort
-    echomsg repeat('    ', a:context.depth - 1) . a:context.node.to_string()
-  endfunction
-  call self.traverse(self, l:fn.traverse)
-  echomsg ' '
-endfunction
+# Primary vim9 API
+export def New(pos: dict<any>, text: string): SnippetNode
+  return SnippetNode.new(pos, text)
+enddef

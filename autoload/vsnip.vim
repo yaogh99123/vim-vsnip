@@ -1,262 +1,239 @@
-let s:Session = vsnip#session#import()
-let s:Snippet = vsnip#snippet#import()
-let s:TextEdit = vital#vsnip#import('VS.LSP.TextEdit')
-let s:Position = vital#vsnip#import('VS.LSP.Position')
+vim9script
 
-let s:session = v:null
-let s:selected_text = ''
+import autoload 'vsnip/session.vim' as SessionMod
+import autoload 'vsnip/snippet.vim' as SnippetMod
 
-let g:vsnip#DeactivateOn = {}
-let g:vsnip#DeactivateOn.OutsideOfSnippet = 1
-let g:vsnip#DeactivateOn.OutsideOfCurrentTabstop = 2
+var TextEdit: dict<any> = vital#vsnip#import('VS.LSP.TextEdit')
+var Position: dict<any> = vital#vsnip#import('VS.LSP.Position')
 
-"
-" vsnip#selected_text.
-"
-function! vsnip#selected_text(...) abort
-  if len(a:000) == 1
-    let s:selected_text = a:000[0]
+var g_session: any = null
+var g_selected_text: string = ''
+
+# vsnip#selected_text
+export def selected_text(...args: list<any>): string
+  if len(args) == 1
+    g_selected_text = args[0]
+    return ''
   else
-    return s:selected_text
+    return g_selected_text
   endif
-endfunction
+enddef
 
-"
-" vsnip#available.
-"
-function! vsnip#available(...) abort
-  let l:direction = get(a:000, 0, 1)
-  return vsnip#expandable() || vsnip#jumpable(l:direction)
-endfunction
+# vsnip#available
+export def available(...args: list<any>): bool
+  var direction = get(args, 0, 1)
+  return expandable() || jumpable(direction)
+enddef
 
-"
-" vsnip#expandable.
-"
-function! vsnip#expandable() abort
-  return !empty(vsnip#get_context())
-endfunction
+# vsnip#expandable
+export def expandable(): bool
+  return !empty(get_context())
+enddef
 
-"
-" vsnip#jumpable.
-"
-function! vsnip#jumpable(...) abort
-  let l:direction = get(a:000, 0, 1)
-  return !empty(s:session) && s:session.jumpable(l:direction)
-endfunction
+# vsnip#jumpable
+export def jumpable(...args: list<any>): bool
+  var direction = get(args, 0, 1)
+  return !empty(g_session) && g_session.jumpable(direction)
+enddef
 
-"
-" vsnip#expand
-"
-function! vsnip#expand() abort
-  let l:context = vsnip#get_context()
-  if !empty(l:context)
-    call s:TextEdit.apply(bufnr('%'), [{
-    \   'range': l:context.range,
-    \   'newText': ''
-    \ }])
-    call vsnip#anonymous(join(l:context.snippet.body, "\n"), {
-    \   'position': l:context.range.start
-    \ })
+# vsnip#expand
+export def expand()
+  var ctx = get_context()
+  if !empty(ctx)
+    TextEdit.apply(bufnr('%'), [{
+      range: ctx.range,
+      newText: '',
+    }])
+    anonymous(join(ctx.snippet.body, "\n"), {
+      position: ctx.range.start,
+    })
   endif
-endfunction
+enddef
 
-"
-" vsnip#anonymous.
-"
-function! vsnip#anonymous(text, ...) abort
-  let l:option = get(a:000, 0, {})
-  let l:prefix = get(l:option, 'prefix', v:null)
-  let l:position = get(l:option, 'position', s:Position.cursor())
+# vsnip#anonymous
+export def anonymous(text: string, ...args: list<any>)
+  var option: dict<any> = get(args, 0, {})
+  var prefix: any = get(option, 'prefix', null)
+  var position: dict<any> = get(option, 'position', Position.cursor())
 
-  if l:prefix isnot# v:null
-    let l:position.character -= strchars(l:prefix)
-    call s:TextEdit.apply(bufnr('%'), [{
-    \   'range': {
-    \     'start': l:position,
-    \     'end': {
-    \       'line': l:position.line,
-    \       'character': l:position.character + strchars(l:prefix),
-    \     },
-    \   },
-    \   'newText': ''
-    \ }])
+  if prefix isnot null
+    position.character -= strchars(prefix)
+    TextEdit.apply(bufnr('%'), [{
+      range: {
+        start: position,
+        end: {
+          line: position.line,
+          character: position.character + strchars(prefix),
+        },
+      },
+      newText: '',
+    }])
   endif
 
-  let l:session = s:Session.new(bufnr('%'), l:position, a:text)
+  var new_session = SessionMod.New(bufnr('%'), position, text)
 
-  call vsnip#selected_text('')
+  selected_text('')
 
-  if !empty(s:session)
-    call s:session.flush_changes() " try to sync buffer content because vsnip#expand maybe remove prefix
+  if !empty(g_session)
+    g_session.flush_changes()
   endif
 
-  if empty(s:session)
-    let s:session = l:session
-    call s:session.expand()
+  if empty(g_session)
+    g_session = new_session
+    g_session.expand()
   else
-    call s:session.merge(l:session)
+    g_session.merge(new_session)
   endif
 
   doautocmd <nomodeline> User vsnip#expand
 
-  call s:session.refresh()
-  call s:session.jump(1)
-endfunction
+  g_session.refresh()
+  g_session.jump(1)
+enddef
 
-"
-" vsnip#get_session
-"
-function! vsnip#get_session() abort
-  return s:session
-endfunction
+# vsnip#get_session
+export def get_session(): any
+  return g_session
+enddef
 
-"
-" vsnip#deactivate
-"
-function! vsnip#deactivate() abort
-  let s:session = {}
-endfunction
+# vsnip#deactivate
+export def deactivate()
+  g_session = null
+enddef
 
-"
-" get_context.
-"
-function! vsnip#get_context() abort
-  let l:offset = mode()[0] ==# 'i' ? 2 : 1
-  let l:before_text = getline('.')[0 : col('.') - l:offset]
-  let l:before_text_len = strchars(l:before_text)
+# vsnip#get_context
+export def get_context(): any
+  var offset = mode()[0] ==# 'i' ? 2 : 1
+  var before_text = getline('.')[0 : col('.') - offset]
+  var before_text_len = strchars(before_text)
 
-  if l:before_text_len == 0
+  if before_text_len == 0
     return {}
   endif
 
-  let l:sources = vsnip#source#find(bufnr('%'))
+  var sources = vsnip#source#find(bufnr('%'))
 
-  " Search prefix
-  for l:source in l:sources
-    for l:snippet in l:source
-      for l:prefix in l:snippet.prefix
-        let l:prefix_len = strchars(l:prefix)
-        if strcharpart(l:before_text, l:before_text_len - l:prefix_len, l:prefix_len) !=# l:prefix
+  # Search prefix
+  for source in sources
+    for snippet in source
+      for prefix in snippet.prefix
+        var prefix_len = strchars(prefix)
+        if strcharpart(before_text, before_text_len - prefix_len, prefix_len) !=# prefix
           continue
         endif
-        if l:prefix =~# '^\h' && l:before_text !~# '\<\V' . escape(l:prefix, '\/?') . '\m$'
+        if prefix =~# '^\h' && before_text !~# '\<\V' .. escape(prefix, '\/?') .. '\m$'
           continue
         endif
-        return s:create_context(l:snippet, l:before_text_len, l:prefix_len)
+        return CreateContext(snippet, before_text_len, prefix_len)
       endfor
     endfor
   endfor
 
-  " Search prefix-alias
-  for l:source in l:sources
-    for l:snippet in l:source
-      for l:prefix in l:snippet.prefix_alias
-        let l:prefix_len = strchars(l:prefix)
-        if strcharpart(l:before_text, l:before_text_len - l:prefix_len, l:prefix_len) !=# l:prefix
+  # Search prefix-alias
+  for source in sources
+    for snippet in source
+      for prefix in snippet.prefix_alias
+        var prefix_len = strchars(prefix)
+        if strcharpart(before_text, before_text_len - prefix_len, prefix_len) !=# prefix
           continue
         endif
-        if l:prefix =~# '^\h' && l:before_text !~# '\<\V' . escape(l:prefix, '\/?') . '\m$'
+        if prefix =~# '^\h' && before_text !~# '\<\V' .. escape(prefix, '\/?') .. '\m$'
           continue
         endif
-        return s:create_context(l:snippet, l:before_text_len, l:prefix_len)
+        return CreateContext(snippet, before_text_len, prefix_len)
       endfor
     endfor
   endfor
 
   return {}
-endfunction
+enddef
 
-"
-" vsnip#completefunc
-"
-function! vsnip#completefunc(findstart, base) abort
-  if !a:findstart
-    if a:base ==# ''
+# vsnip#completefunc
+export def completefunc(findstart: number, base: string): any
+  if !findstart
+    if base ==# ''
       return []
     endif
-    return vsnip#get_complete_items(bufnr('%'))
+    return get_complete_items(bufnr('%'))
   endif
 
-  let line = getline('.')
-  let start = col('.') - 2
+  var line = getline('.')
+  var start = col('.') - 2
   while start >= 0 && line[start] =~# '\k'
-    let start -= 1
+    start -= 1
   endwhile
   return start + 1
-endfunction
+enddef
 
-"
-" vsnip#get_complete_items
-"
-function! vsnip#get_complete_items(bufnr) abort
-  let l:uniq = {}
-  let l:candidates = []
+# vsnip#get_complete_items
+export def get_complete_items(bufnr_: number): list<any>
+  var uniq: dict<any> = {}
+  var candidates: list<any> = []
 
-  for l:source in vsnip#source#find(a:bufnr)
-    for l:snippet in l:source
-      for l:prefix in l:snippet.prefix
-        if has_key(l:uniq, l:prefix)
+  for source in vsnip#source#find(bufnr_)
+    for snippet in source
+      for prefix in snippet.prefix
+        if has_key(uniq, prefix)
           continue
         endif
-        let l:uniq[l:prefix] = v:true
+        uniq[prefix] = true
 
-        let l:menu = ''
-        let l:menu .= '[v]'
-        let l:menu .= ' '
-        let l:menu .= (strlen(l:snippet.description) > 0 ? l:snippet.description : l:snippet.label)
+        var menu = ''
+        menu ..= '[v]'
+        menu ..= ' '
+        menu ..= (strlen(snippet.description) > 0 ? snippet.description : snippet.label)
 
-        call add(l:candidates, {
-        \   'word': l:prefix,
-        \   'abbr': l:prefix,
-        \   'kind': 'Snippet',
-        \   'menu': l:menu,
-        \   'dup': 1,
-        \   'user_data': json_encode({
-        \     'vsnip': {
-        \       'snippet': l:snippet.body
-        \     }
-        \   })
-        \ })
+        add(candidates, {
+          word: prefix,
+          abbr: prefix,
+          kind: 'Snippet',
+          menu: menu,
+          dup: 1,
+          user_data: json_encode({
+            vsnip: {
+              snippet: snippet.body
+            }
+          })
+        })
       endfor
     endfor
   endfor
 
-  return l:candidates
-endfunction
+  return candidates
+enddef
 
-"
-" vsnip#decode
-"
-function! vsnip#to_string(text) abort
-  let l:text = type(a:text) == type([]) ? join(a:text, "\n") : a:text
-  return s:Snippet.new(s:Position.cursor(), l:text).text()
-endfunction
-
-"
-" vsnip#debug
-"
-function! vsnip#debug() abort
-  if !empty(s:session)
-    call s:session.snippet.debug()
+# vsnip#to_string
+export def to_string(text: any): string
+  var t: string
+  if type(text) == v:t_list
+    t = join(text as list<any>, "\n")
+  else
+    t = text as string
   endif
-endfunction
+  return SnippetMod.New(Position.cursor(), t).text()
+enddef
 
-"
-" create_context
-"
-function! s:create_context(snippet, before_text_len, prefix_len) abort
-  let l:line = line('.') - 1
+# vsnip#debug
+export def debug()
+  if !empty(g_session)
+    g_session.snippet.debug()
+  endif
+enddef
+
+# create_context (internal helper)
+def CreateContext(snippet: any, before_text_len: number, prefix_len: number): dict<any>
+  var line = line('.') - 1
   return {
-  \   'range': {
-  \     'start': {
-  \       'line': l:line,
-  \       'character': a:before_text_len - a:prefix_len
-  \     },
-  \     'end': {
-  \       'line': l:line,
-  \       'character': a:before_text_len
-  \     }
-  \   },
-  \   'snippet': a:snippet
-  \ }
-endfunction
+    range: {
+      start: {
+        line: line,
+        character: before_text_len - prefix_len,
+      },
+      end: {
+        line: line,
+        character: before_text_len,
+      },
+    },
+    snippet: snippet,
+  }
+enddef
