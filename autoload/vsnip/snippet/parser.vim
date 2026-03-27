@@ -189,12 +189,7 @@ choice = C.Map(
     close
   ),
   (value: any): any => {
-    var r: dict<any> = {
-      type: 'placeholder',
-      id: value[2],
-      choice: value[4],
-      children: [copy(value[4][0])],
-    }
+    var r: dict<any> = {'type': 'placeholder', 'id': value[2], 'choice': value[4], 'children': [copy(value[4][0])]}
     return r
   }
 )

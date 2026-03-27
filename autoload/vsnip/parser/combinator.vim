@@ -89,7 +89,10 @@ enddef
 
 # Tries each parser in order, returning the first success.
 export def Or(...parsers: list<Parser>): Parser
-  var Fns: list<func(string, number): list<any>> = parsers->mapnew((_, p) => p.Parse)
+  var Fns: list<func(string, number): list<any>> = []
+  for _p in parsers
+    add(Fns, _p.Parse)
+  endfor
   return Parser.new((text: string, pos: number): list<any> => {
     for Fn in Fns
       var parsed: list<any> = Fn(text, pos)
@@ -103,7 +106,10 @@ enddef
 
 # Runs all parsers in sequence; all must succeed.
 export def Seq(...parsers: list<Parser>): Parser
-  var Fns: list<func(string, number): list<any>> = parsers->mapnew((_, p) => p.Parse)
+  var Fns: list<func(string, number): list<any>> = []
+  for _p in parsers
+    add(Fns, _p.Parse)
+  endfor
   return Parser.new((text: string, pos: number): list<any> => {
     var cur_pos = pos
     var values: list<any> = []
