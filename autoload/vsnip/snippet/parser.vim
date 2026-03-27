@@ -1,211 +1,198 @@
-let s:Combinator = vsnip#parser#combinator#import()
+vim9script
 
-"
-" vsnip#snippet#parser#parse.
-" @see https://github.com/Microsoft/language-server-protocol/blob/master/snippetSyntax.md
-"
-function! vsnip#snippet#parser#parse(text) abort
-  if strlen(a:text) == 0
+# @see https://github.com/Microsoft/language-server-protocol/blob/master/snippetSyntax.md
+
+import autoload 'vsnip/parser/combinator.vim' as C
+
+export def Parse(text: string): list<any>
+  if strlen(text) == 0
     return []
   endif
 
-  let l:parsed = s:parser.parse(a:text, 0)
-  if !l:parsed[0]
-    throw json_encode({ 'text': a:text, 'result': l:parsed })
+  var parsed: list<any> = parser.Parse(text, 0)
+  if !parsed[0]
+    throw json_encode({text: text, result: parsed})
   endif
-  return l:parsed[1]
-endfunction
+  return parsed[1]
+enddef
 
-let s:skip = s:Combinator.skip
-let s:token = s:Combinator.token
-let s:many = s:Combinator.many
-let s:or = s:Combinator.or
-let s:seq = s:Combinator.seq
-let s:lazy = s:Combinator.lazy
-let s:option = s:Combinator.option
-let s:pattern = s:Combinator.pattern
-let s:map = s:Combinator.map
+def TextParser(stop: list<string>, escape_: list<string>): C.Parser
+  return C.Map(C.Skip(stop, escape_), (value: any): any => {
+    var r: dict<any> = {type: 'text', raw: value[0], escaped: value[1]}
+    return r
+  })
+enddef
 
-"
-" primitives.
-"
-let s:dollar = s:token('$')
-let s:open = s:token('{')
-let s:close = s:token('}')
-let s:colon = s:token(':')
-let s:slash = s:token('/')
-let s:comma = s:token(',')
-let s:pipe = s:token('|')
-let s:varname = s:pattern('[_[:alpha:]]\w*')
-let s:int = s:map(s:pattern('\d\+'), { value -> str2nr(value) })
-let s:text = { stop, escape -> s:map(
-\   s:skip(stop, escape),
-\   { value -> {
-\     'type': 'text',
-\     'raw': value[0],
-\     'escaped': value[1]
-\   }
-\ }) }
-let s:regex = s:map(s:text(['/'], []), { value -> {
-\   'type': 'regex',
-\   'pattern': value.raw
-\ } })
+# primitives
+var dollar: C.Parser = C.Token('$')
+var open: C.Parser   = C.Token('{')
+var close: C.Parser  = C.Token('}')
+var colon: C.Parser  = C.Token(':')
+var slash: C.Parser  = C.Token('/')
+var comma: C.Parser  = C.Token(',')
+var pipe: C.Parser   = C.Token('|')
+var varname: C.Parser = C.Pattern('[_[:alpha:]]\w*')
+var int_: C.Parser = C.Map(C.Pattern('\d\+'), (value: any): any => str2nr(value))
+var regex_: C.Parser = C.Map(TextParser(['/'], []), (value: any): any => {
+  var r: dict<any> = {type: 'regex', pattern: value.raw}
+  return r
+})
 
-"
-" any (without text).
-"
-let s:any = s:or(
-\   s:lazy({ -> s:choice }),
-\   s:lazy({ -> s:variable }),
-\   s:lazy({ -> s:tabstop }),
-\   s:lazy({ -> s:placeholder }),
-\ )
+# Forward declarations for mutually recursive parsers
+var choice: C.Parser = C.Token('')
+var variable: C.Parser = C.Token('')
+var tabstop: C.Parser = C.Token('')
+var placeholder: C.Parser = C.Token('')
 
-"
-" format.
-"
-let s:format1 = s:map(s:seq(s:dollar, s:int), { value -> {
-\   'type': 'format',
-\   'id': value[1]
-\ } })
-let s:format2 = s:map(s:seq(s:dollar, s:open, s:int, s:close), { value -> {
-\   'type': 'format',
-\   'id': value[2]
-\ } })
-let s:format3 = s:map(
-\ s:seq(
-\   s:dollar,
-\   s:open,
-\   s:int,
-\   s:colon,
-\   s:or(
-\     s:token('/upcase'),
-\     s:token('/downcase'),
-\     s:token('/capitalize'),
-\     s:token('/camelcase'),
-\     s:token('/pascalcase'),
-\     s:token('+if'),
-\     s:token('?if:else'),
-\     s:token('-else'),
-\     s:token('else')
-\   ),
-\   s:close
-\ ), { value -> {
-\   'type': 'format',
-\   'id': value[2],
-\   'modifier': value[4]
-\ } })
-let s:format = s:or(s:format1, s:format2, s:format3)
+# any (without text) - uses Lazy to defer resolution of forward-declared parsers
+var any_parser: C.Parser = C.Or(
+  C.Lazy((): any => choice),
+  C.Lazy((): any => variable),
+  C.Lazy((): any => tabstop),
+  C.Lazy((): any => placeholder),
+)
 
-"
-" transform
-"
-let s:transform = s:map(s:seq(
-\   s:slash,
-\   s:regex,
-\   s:slash,
-\   s:many(s:or(s:format, s:text(['/', '$'], []))),
-\   s:slash,
-\   s:option(s:many(s:or(s:token('i'), s:token('g'))))
-\ ), { value -> {
-\   'type': 'transform',
-\   'regex': value[1],
-\   'format': value[3],
-\   'option': value[5]
-\ } })
+# format
+var format1: C.Parser = C.Map(C.Seq(dollar, int_), (value: any): any => {
+  var r: dict<any> = {type: 'format', id: value[1]}
+  return r
+})
+var format2: C.Parser = C.Map(C.Seq(dollar, open, int_, close), (value: any): any => {
+  var r: dict<any> = {type: 'format', id: value[2]}
+  return r
+})
+var format3: C.Parser = C.Map(
+  C.Seq(
+    dollar,
+    open,
+    int_,
+    colon,
+    C.Or(
+      C.Token('/upcase'),
+      C.Token('/downcase'),
+      C.Token('/capitalize'),
+      C.Token('/camelcase'),
+      C.Token('/pascalcase'),
+      C.Token('+if'),
+      C.Token('?if:else'),
+      C.Token('-else'),
+      C.Token('else')
+    ),
+    close
+  ),
+  (value: any): any => {
+    var r: dict<any> = {type: 'format', id: value[2], modifier: value[4]}
+    return r
+  }
+)
+var format: C.Parser = C.Or(format1, format2, format3)
 
-"
-" variable
-"
-let s:variable1 = s:map(s:seq(s:dollar, s:varname), { value -> {
-\   'type': 'variable',
-\   'name': value[1],
-\   'children': [],
-\ } })
-let s:variable2 = s:map(s:seq(s:dollar, s:open, s:varname, s:close), { value -> {
-\   'type': 'variable',
-\   'name': value[2],
-\   'children': [],
-\ } })
-let s:variable3 = s:map(s:seq(
-\   s:dollar,
-\   s:open,
-\   s:varname,
-\   s:colon,
-\   s:many(s:or(s:any, s:text(['$', '}'], []))),
-\   s:close
-\ ), { value -> {
-\   'type': 'variable',
-\   'name': value[2],
-\   'children': value[4]
-\ } })
-let s:variable4 = s:map(s:seq(s:dollar, s:open, s:varname, s:transform, s:close), { value -> {
-\   'type': 'variable',
-\   'name': value[2],
-\   'transform': value[3],
-\   'children': [],
-\ } })
+# transform
+var transform: C.Parser = C.Map(
+  C.Seq(
+    slash,
+    regex_,
+    slash,
+    C.Many(C.Or(format, TextParser(['/', '$'], []))),
+    slash,
+    C.Option_(C.Many(C.Or(C.Token('i'), C.Token('g'))))
+  ),
+  (value: any): any => {
+    var r: dict<any> = {type: 'transform', regex: value[1], format: value[3], option: value[5]}
+    return r
+  }
+)
 
-let s:variable = s:or(s:variable1, s:variable2, s:variable3, s:variable4)
+# variable
+var variable1: C.Parser = C.Map(C.Seq(dollar, varname), (value: any): any => {
+  var r: dict<any> = {type: 'variable', name: value[1], children: []}
+  return r
+})
+var variable2: C.Parser = C.Map(C.Seq(dollar, open, varname, close), (value: any): any => {
+  var r: dict<any> = {type: 'variable', name: value[2], children: []}
+  return r
+})
+var variable3: C.Parser = C.Map(
+  C.Seq(
+    dollar,
+    open,
+    varname,
+    colon,
+    C.Many(C.Or(any_parser, TextParser(['$', '}'], []))),
+    close
+  ),
+  (value: any): any => {
+    var r: dict<any> = {type: 'variable', name: value[2], children: value[4]}
+    return r
+  }
+)
+var variable4: C.Parser = C.Map(
+  C.Seq(dollar, open, varname, transform, close),
+  (value: any): any => {
+    var r: dict<any> = {type: 'variable', name: value[2], transform: value[3], children: []}
+    return r
+  }
+)
+variable = C.Or(variable1, variable2, variable3, variable4)
 
-"
-" placeholder.
-"
-let s:placeholder = s:map(s:seq(
-\   s:dollar,
-\   s:open,
-\   s:int,
-\   s:colon,
-\   s:many(s:or(s:any, s:text(['$', '}'], []))),
-\   s:close
-\ ), { value -> {
-\   'type': 'placeholder',
-\   'id': value[2],
-\   'children': value[4]
-\ } })
+# placeholder
+placeholder = C.Map(
+  C.Seq(
+    dollar,
+    open,
+    int_,
+    colon,
+    C.Many(C.Or(any_parser, TextParser(['$', '}'], []))),
+    close
+  ),
+  (value: any): any => {
+    var r: dict<any> = {type: 'placeholder', id: value[2], children: value[4]}
+    return r
+  }
+)
 
-"
-" tabstop
-"
-let s:tabstop1 = s:map(s:seq(s:dollar, s:int), { value -> {
-\   'type': 'placeholder',
-\   'id': value[1],
-\   'children': [],
-\ } })
-let s:tabstop2 = s:map(s:seq(s:dollar, s:open, s:int, s:option(s:colon), s:close), { value -> {
-\   'type': 'placeholder',
-\   'id': value[2],
-\   'children': [],
-\ } })
-let s:tabstop3 = s:map(s:seq(s:dollar, s:open, s:int, s:transform, s:close), { value -> {
-\   'type': 'placeholder',
-\   'id': value[2],
-\   'children': [],
-\   'transform': value[3]
-\ } })
-let s:tabstop = s:or(s:tabstop1, s:tabstop2, s:tabstop3)
+# tabstop
+var tabstop1: C.Parser = C.Map(C.Seq(dollar, int_), (value: any): any => {
+  var r: dict<any> = {type: 'placeholder', id: value[1], children: []}
+  return r
+})
+var tabstop2: C.Parser = C.Map(
+  C.Seq(dollar, open, int_, C.Option_(colon), close),
+  (value: any): any => {
+    var r: dict<any> = {type: 'placeholder', id: value[2], children: []}
+    return r
+  }
+)
+var tabstop3: C.Parser = C.Map(
+  C.Seq(dollar, open, int_, transform, close),
+  (value: any): any => {
+    var r: dict<any> = {type: 'placeholder', id: value[2], children: [], transform: value[3]}
+    return r
+  }
+)
+tabstop = C.Or(tabstop1, tabstop2, tabstop3)
 
-"
-" choice
-"
-let s:choice = s:map(s:seq(
-\   s:dollar,
-\   s:open,
-\   s:int,
-\   s:pipe,
-\   s:many(
-\     s:map(s:seq(s:text([',', '|'], []), s:option(s:comma)), { value -> value[0] }),
-\   ),
-\   s:pipe,
-\   s:close
-\ ), { value -> {
-\   'type': 'placeholder',
-\   'id': value[2],
-\   'choice': value[4],
-\   'children': [copy(value[4][0])],
-\ } })
+# choice
+choice = C.Map(
+  C.Seq(
+    dollar,
+    open,
+    int_,
+    pipe,
+    C.Many(
+      C.Map(
+        C.Seq(TextParser([',', '|'], []), C.Option_(comma)),
+        (value: any): any => value[0]
+      )
+    ),
+    pipe,
+    close
+  ),
+  (value: any): any => {
+    var r: dict<any> = {'type': 'placeholder', 'id': value[2], 'choice': value[4], 'children': [copy(value[4][0])]}
+    return r
+  }
+)
 
-"
-" parser.
-"
-let s:parser = s:many(s:or(s:any, s:text(['$'], ['}'])))
+# top-level parser
+var parser: C.Parser = C.Many(C.Or(any_parser, TextParser(['$'], ['}'])))

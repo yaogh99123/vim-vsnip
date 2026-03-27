@@ -1,60 +1,54 @@
-"
-" vsnip#indent#get_one_indent
-"
-function! vsnip#indent#get_one_indent() abort
+vim9script
+
+# vsnip#indent#get_one_indent
+export def get_one_indent(): string
   return !&expandtab ? "\t" : repeat(' ', &shiftwidth ? &shiftwidth : &tabstop)
-endfunction
+enddef
 
-"
-" vsnip#indent#get_base_indent
-"
-function! vsnip#indent#get_base_indent(text) abort
-  return matchstr(a:text, '^\s*')
-endfunction
+# vsnip#indent#get_base_indent
+export def get_base_indent(text: string): string
+  return matchstr(text, '^\s*')
+enddef
 
-"
-" vsnip#indent#adjust_snippet_body
-"
-function! vsnip#indent#adjust_snippet_body(line, text) abort
-  let l:one_indent = vsnip#indent#get_one_indent()
-  let l:base_indent = vsnip#indent#get_base_indent(a:line)
-  let l:text = a:text
-  if l:one_indent !=# "\t"
-    while match(l:text, "\\%(^\\|\n\\)\\s*\\zs\\t") != -1
-      let l:text = substitute(l:text, "\\%(^\\|\n\\)\\s*\\zs\\t", l:one_indent, 'g') " convert \t as one indent
+# vsnip#indent#adjust_snippet_body
+export def adjust_snippet_body(line: string, text: string): string
+  var one_indent = get_one_indent()
+  var base_indent = get_base_indent(line)
+  var result = text
+  if one_indent != "\t"
+    while match(result, "\\%(^\\|\n\\)\\s*\\zs\\t") != -1
+      result = substitute(result, "\\%(^\\|\n\\)\\s*\\zs\\t", one_indent, 'g') # convert \t as one indent
     endwhile
   endif
-  let l:text = substitute(l:text, "\n\\zs", l:base_indent, 'g') " add base_indent for all lines
-  let l:text = substitute(l:text, "\n\\s*\\ze\n", "\n", 'g') " remove empty line's indent
-  return l:text
-endfunction
+  result = substitute(result, "\n\\zs", base_indent, 'g') # add base_indent for all lines
+  result = substitute(result, "\n\\s*\\ze\n", "\n", 'g') # remove empty line's indent
+  return result
+enddef
 
-"
-" vsnip#indent#trim_base_indent
-"
-function! vsnip#indent#trim_base_indent(text) abort
-  let l:is_char_wise = match(a:text, "\n$") == -1
-  let l:text = substitute(a:text, "\n$", '', 'g')
+# vsnip#indent#trim_base_indent
+export def trim_base_indent(text: string): string
+  var is_char_wise = match(text, "\n$") == -1
+  var result = substitute(text, "\n$", '', 'g')
 
-  let l:is_first_line = v:true
-  let l:base_indent = ''
-  for l:line in split(l:text, "\n", v:true)
-    " Ignore the first line when the text created as char-wise.
-    if l:is_char_wise && l:is_first_line
-      let l:is_first_line = v:false
+  var is_first_line = true
+  var base_indent = ''
+  for line in split(result, "\n", true)
+    # Ignore the first line when the text created as char-wise.
+    if is_char_wise && is_first_line
+      is_first_line = false
       continue
     endif
 
-    " Ignore empty line.
-    if l:line ==# ''
+    # Ignore empty line.
+    if line == ''
       continue
     endif
 
-    " Detect most minimum base indent.
-    let l:indent = matchstr(l:line, '^\s*')
-    if l:base_indent ==# '' || strlen(l:indent) < strlen(l:base_indent)
-      let l:base_indent = l:indent
+    # Detect most minimum base indent.
+    var line_indent = matchstr(line, '^\s*')
+    if base_indent == '' || strlen(line_indent) < strlen(base_indent)
+      base_indent = line_indent
     endif
   endfor
-  return substitute(l:text, "\\%(^\\|\n\\)\\zs\\V" . l:base_indent, '', 'g')
-endfunction
+  return substitute(result, "\\%(^\\|\n\\)\\zs\\V" .. base_indent, '', 'g')
+enddef

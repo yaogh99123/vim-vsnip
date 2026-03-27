@@ -1,88 +1,93 @@
-let s:cache = {}
+vim9script
 
-function! vsnip#source#snipmate#refresh(path) abort
-  if has_key(s:cache, a:path)
-    unlet s:cache[a:path]
+var cache: dict<any> = {}
+
+export def Refresh(path: string): void
+  if has_key(cache, path)
+    unlet cache[path]
   endif
-endfunction
+enddef
 
-function! vsnip#source#snipmate#find(bufnr) abort
-  let filetypes = vsnip#source#filetypes(a:bufnr)
-  return s:find(filetypes, a:bufnr)
-endfunction
+export def Find(bufnr: number): list<any>
+  var filetypes = vsnip#source#filetypes(bufnr)
+  return FindByTypes(filetypes, bufnr)
+enddef
 
-function! s:find(filetypes, bufnr) abort
-  let sources = []
-  for path in s:get_source_paths(a:filetypes, a:bufnr)
-    if !has_key(s:cache, path)
-      let s:cache[path] = s:create(path, a:bufnr)
+def FindByTypes(filetypes: list<any>, bufnr: number): list<any>
+  var sources: list<any> = []
+  for path in GetSourcePaths(filetypes, bufnr)
+    if !has_key(cache, path)
+      cache[path] = Create(path, bufnr)
     endif
-    call add(sources, s:cache[path])
+    add(sources, cache[path])
   endfor
   return sources
-endfunction
+enddef
 
-function! s:get_source_paths(filetypes, bufnr) abort
-  let paths = []
-  for dir in s:get_source_dirs(a:bufnr)
-    for filetype in a:filetypes
-      let path = resolve(expand(printf('%s/%s.snippets', dir, filetype)))
-      if has_key(s:cache, path) || filereadable(path)
-        call add(paths, path)
+def GetSourcePaths(filetypes: list<any>, bufnr: number): list<any>
+  var paths: list<any> = []
+  for dir in GetSourceDirs(bufnr)
+    for filetype in filetypes
+      var path = resolve(expand(printf('%s/%s.snippets', dir, filetype)))
+      if has_key(cache, path) || filereadable(path)
+        add(paths, path)
       endif
     endfor
   endfor
   return paths
-endfunction
+enddef
 
-function! s:get_source_dirs(bufnr) abort
-  let dirs = []
-  let buf_dir = getbufvar(a:bufnr, 'vsnip_snippet_dir', '')
+def GetSourceDirs(bufnr: number): list<any>
+  var dirs: list<any> = []
+  var buf_dir = getbufvar(bufnr, 'vsnip_snippet_dir', '')
   if buf_dir !=# ''
-    let dirs += [buf_dir]
+    dirs += [buf_dir]
   endif
-  let dirs += getbufvar(a:bufnr, 'vsnip_snippet_dirs', [])
-  let dirs += [g:vsnip_snippet_dir]
-  let dirs += g:vsnip_snippet_dirs
+  dirs += getbufvar(bufnr, 'vsnip_snippet_dirs', [])
+  dirs += [g:vsnip_snippet_dir]
+  dirs += g:vsnip_snippet_dirs
   return dirs
-endfunction
+enddef
 
-function! s:create(path, bufnr) abort
-  let file = readfile(a:path)
-  let file = type(file) == v:t_list ? file : [file]
-  call map(file, { _, f -> iconv(f, 'utf-8', &encoding) })
-  let source = []
-  let i = -1
-  while i + 1 < len(file)
-    let [i, line] = [i + 1, file[i + 1]]
+def Create(path: string, bufnr: number): list<any>
+  var file = readfile(path)
+  var filelist: list<string> = type(file) == v:t_list ? file : [file]
+  filelist = mapnew(filelist, (_, f) => iconv(f, 'utf-8', &encoding))
+  var source: list<any> = []
+  var i = -1
+  while i + 1 < len(filelist)
+    i = i + 1
+    var line = filelist[i]
     if line =~# '^\(#\|\s*$\)'
-      " Comment, or blank line before snippets
+      # Comment, or blank line before snippets
     elseif line =~# '^extends\s\+\S'
-      let filetypes = map(split(line[7:], ','), 'trim(v:val)')
-      let source += flatten(s:find(filetypes, a:bufnr))
-    elseif line =~# '^snippet\s\+\S' && i + 1 < len(file)
-      let matched = matchlist(line, '^snippet\s\+\(\S\+\)\s*\(.*\)')
-      let [prefix, description] = [matched[1], matched[2]]
-      let body = []
-      let indent = matchstr(file[i + 1], '^\s\+')
-      while i + 1 < len(file) && file[i + 1] =~# '^\(' . indent . '\|\s*$\)'
-        let [i, line] = [i + 1, file[i + 1]]
-        call add(body, line[strlen(indent):])
+      var filetypes = mapnew(split(line[7 :], ','), (_, v) => trim(v))
+      source += flatten(FindByTypes(filetypes, bufnr))
+    elseif line =~# '^snippet\s\+\S' && i + 1 < len(filelist)
+      var matched = matchlist(line, '^snippet\s\+\(\S\+\)\s*\(.*\)')
+      var prefix = matched[1]
+      var description = matched[2]
+      var body: list<string> = []
+      var indent = matchstr(filelist[i + 1], '^\s\+')
+      while i + 1 < len(filelist) && filelist[i + 1] =~# '^\(' .. indent .. '\|\s*$\)'
+        i = i + 1
+        line = filelist[i]
+        add(body, line[strlen(indent) :])
       endwhile
-      let [prefixes, prefixes_alias] = vsnip#source#resolve_prefix(prefix)
-      call add(source, {
-            \ 'label': prefix,
-            \ 'prefix': prefixes,
-            \ 'prefix_alias': prefixes_alias,
-            \ 'body': body,
-            \ 'description': description
-            \ })
+      var [prefixes, prefixes_alias] = vsnip#source#resolve_prefix(prefix)
+      add(source, {
+        label: prefix,
+        prefix: prefixes,
+        prefix_alias: prefixes_alias,
+        body: body,
+        description: description
+      })
     else
       echohl ErrorMsg
-      echomsg printf('[vsnip] Parsing error occurred on: %s#L%s', a:path, i + 1)
+      echomsg printf('[vsnip] Parsing error occurred on: %s#L%s', path, i + 1)
       echohl None
       break
     endif
   endwhile
-  return sort(source, { a, b -> strlen(b.prefix[0]) - strlen(a.prefix[0]) })
-endfunction
+  return sort(source, (a, b) => strlen(b.prefix[0]) - strlen(a.prefix[0]))
+enddef

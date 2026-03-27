@@ -1,43 +1,36 @@
-let s:Placeholder = vsnip#snippet#node#placeholder#import()
-let s:Variable = vsnip#snippet#node#variable#import()
-let s:Text = vsnip#snippet#node#text#import()
-let s:Transform = vsnip#snippet#node#transform#import()
+vim9script
 
-"
-" vsnip#snippet#node#create_from_ast
-"
-function! vsnip#snippet#node#create_from_ast(ast) abort
-  if type(a:ast) == type([])
-    return map(a:ast, 'vsnip#snippet#node#create_from_ast(v:val)')
+import autoload 'vsnip/snippet/node/placeholder.vim' as PlaceholderMod
+import autoload 'vsnip/snippet/node/variable.vim' as VariableMod
+import autoload 'vsnip/snippet/node/text.vim' as TextMod
+import autoload 'vsnip/snippet/node/transform.vim' as TransformMod
+
+export def create_from_ast(ast: any): any
+  if type(ast) == v:t_list
+    return mapnew(ast, (_, v) => create_from_ast(v))
   endif
 
-  if a:ast.type ==# 'placeholder'
-    return s:Placeholder.new(a:ast)
+  if ast.type ==# 'placeholder'
+    return PlaceholderMod.New(ast)
   endif
-  if a:ast.type ==# 'variable'
-    return s:Variable.new(a:ast)
+  if ast.type ==# 'variable'
+    return VariableMod.New(ast)
   endif
-  if a:ast.type ==# 'text'
-    return s:Text.new(a:ast)
+  if ast.type ==# 'text'
+    return TextMod.New(ast)
   endif
 
   throw 'vsnip: invalid node type'
-endfunction
+enddef
 
-"
-" vsnip#snippet#node#create_text
-"
-function! vsnip#snippet#node#create_text(text) abort
-  return s:Text.new({
-  \   'type': 'text',
-  \   'raw': a:text,
-  \   'escaped': a:text
-  \ })
-endfunction
+export def create_text(text: string): any
+  return TextMod.New({
+    type: 'text',
+    raw: text,
+    escaped: text,
+  })
+enddef
 
-"
-" vsnip#snippet#node#create_transform
-"
-function! vsnip#snippet#node#create_transform(transform) abort
-  return s:Transform.new(a:transform)
-endfunction
+export def create_transform(transform: any): any
+  return TransformMod.New(transform)
+enddef

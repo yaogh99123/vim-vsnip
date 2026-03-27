@@ -1,55 +1,52 @@
-let s:max_tabstop = 1000000
-let s:uid = 0
+vim9script
 
-function! vsnip#snippet#node#placeholder#import() abort
-  return s:Placeholder
-endfunction
+const max_tabstop: number = 1000000
+var uid: number = 0
 
-let s:Placeholder = {}
+export class PlaceholderNode
+  var uid: number
+  var type: string
+  var id: number
+  var is_final: bool
+  var follower: bool
+  var choice: list<any>
+  var children: list<any>
+  var transform: any
 
-"
-" new.
-"
-function! s:Placeholder.new(ast) abort
-  let s:uid += 1
+  def new(ast: dict<any>)
+    uid += 1
+    this.uid = uid
+    this.type = 'placeholder'
+    this.id = ast.id
+    this.is_final = ast.id == 0
+    this.follower = false
+    this.choice = get(ast, 'choice', [])
+    this.children = vsnip#snippet#node#create_from_ast(get(ast, 'children', []))
+    this.transform = vsnip#snippet#node#create_transform(get(ast, 'transform', null))
 
-  let l:node = extend(deepcopy(s:Placeholder), {
-  \   'uid': s:uid,
-  \   'type': 'placeholder',
-  \   'id': a:ast.id,
-  \   'is_final': a:ast.id == 0,
-  \   'follower': v:false,
-  \   'choice': get(a:ast, 'choice', []),
-  \   'children': vsnip#snippet#node#create_from_ast(get(a:ast, 'children', [])),
-  \   'transform': vsnip#snippet#node#create_transform(get(a:ast, 'transform')),
-  \ })
+    if this.is_final
+      this.id = max_tabstop
+    endif
 
-  if l:node.is_final
-    let l:node.id = s:max_tabstop
-  endif
+    if len(this.children) == 0
+      this.children = [vsnip#snippet#node#create_text('')]
+    endif
+  enddef
 
-  if len(l:node.children) == 0
-    let l:node.children = [vsnip#snippet#node#create_text('')]
-  endif
+  def text(): string
+    return join(mapnew(this.children, (_, n) => n.text()), '')
+  enddef
 
-  return l:node
-endfunction
+  def to_string(): string
+    return printf('%s(id=%s, follower=%s, choise=%s)',
+      this.type,
+      this.id,
+      this.follower ? 'true' : 'false',
+      this.choice
+    )
+  enddef
+endclass
 
-"
-" text.
-"
-function! s:Placeholder.text() abort
-  return join(map(copy(self.children), 'v:val.text()'), '')
-endfunction
-
-"
-" to_string
-"
-function! s:Placeholder.to_string() abort
-  return printf('%s(id=%s, follower=%s, choise=%s)',
-  \   self.type,
-  \   self.id,
-  \   self.follower ? 'true' : 'false',
-  \   self.choice
-  \ )
-endfunction
+export def New(ast: dict<any>): PlaceholderNode
+  return PlaceholderNode.new(ast)
+enddef
